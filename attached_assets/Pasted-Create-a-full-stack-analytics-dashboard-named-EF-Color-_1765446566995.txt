@@ -1,0 +1,133 @@
+Create a full-stack analytics dashboard named “EF Color Match Dashboard” using:
+
+Tech Stack:
+- Next.js 15 (App Router)
+- TypeScript
+- TailwindCSS
+- MongoDB (Atlas)
+- Prisma or native Mongo driver
+- Charts: Recharts
+- State management: Zustand
+- Next API Routes for backend
+- Authentication: simple JWT or NextAuth (credentials login)
+- .env variables for DB
+
+.env example:
+MONGODB_URL=
+MONGODB_DB=recommendation_db
+NEW_PRODUCTS_COLLECTION=ef_products
+NEW_FEATURES_COLLECTION=ef_features
+JWT_SECRET=somekey
+
+-------------------------------------
+DATABASE SCHEMA:
+ef_features contains:
+- sessionId
+- classification (hard_surface / carpet / both)
+- userImage
+- userIpAddress
+- userLocation
+- segmentation_success
+- searchResults (array of SKUs)
+- imageWasResized
+- createdAt
+
+ef_products contains:
+- sku
+- productName
+- other product details
+
+-------------------------------------
+API ROUTES to create with MongoDB aggregations:
+
+GET /api/overview
+  Return:
+  - totalUsers
+  - totalUploads
+  - avgUploadsPerUser
+  - totalClicks
+  - clickRate
+  - avgClickedRank
+  - totalShares
+  - shareRate
+  - filters support: dateRange, classification, deviceType, state, city
+
+GET /api/returning-users
+GET /api/category-summary
+GET /api/product-performance
+GET /api/geography
+GET /api/device-analytics
+GET /api/time-patterns
+GET /api/shares-downloads
+
+All endpoints must accept query filters:
+?startDate=&endDate=&classification=&device=&state=&city=
+
+-------------------------------------
+FRONTEND REQUIREMENTS (Next.js pages):
+
+Create a sidebar dashboard with these routes:
+- /dashboard/overview
+- /dashboard/returning-users
+- /dashboard/category-comparison
+- /dashboard/product-performance
+- /dashboard/geography
+- /dashboard/device-analytics
+- /dashboard/time-patterns
+- /dashboard/shares-downloads
+
+Each page must:
+- Fetch from API routes
+- Include global filter bar (date range, category, device, location)
+- Use Recharts to display:
+  - Line charts
+  - Bar charts
+  - Donut charts
+  - Area charts
+- Display tables with:
+  - Sorting
+  - Pagination
+  - CSV export
+
+-------------------------------------
+Project Structure:
+
+/app
+  /dashboard
+    /overview
+    /returning-users
+    /product-performance
+    /geography
+    /device-analytics
+    /time-patterns
+  /api
+    /overview
+    /returning-users
+    /category-summary
+    /product-performance
+    /geography
+    /device-analytics
+    /time-patterns
+    /shares-downloads
+
+/lib/db.ts
+/lib/aggregations.ts
+
+/components
+  /charts
+  /filters
+  /cards
+  /tables
+
+-------------------------------------
+DELIVERABLES:
+- Complete Next.js frontend
+- Complete backend API routes
+- All MongoDB aggregations
+- Working charts + UI
+- Fully functional filters
+- CSV export utility
+- JWT/Auth support
+- Complete instructions to run project
+
+Generate the entire project now.
