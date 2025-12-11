@@ -169,7 +169,7 @@ export const MOCK_RECENT_QUERIES: RecentQuery[] = Array.from({ length: 50 }, (_,
     classification: classifications[Math.floor(Math.random() * classifications.length)],
     device: devices[Math.floor(Math.random() * devices.length)],
     actions: actions,
-    status: Math.random() > 0.3 ? "Completed" : "Active",
+    status: (Math.random() > 0.3 ? "Completed" : "Active") as "Completed" | "Active",
     thumbnail: `https://picsum.photos/seed/${i}/50/50` // Placeholder for user uploaded image
   };
 }).sort((a, b) => b.actions - a.actions);
