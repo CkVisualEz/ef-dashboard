@@ -2,6 +2,7 @@ import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { FilterBar } from "@/components/dashboard/FilterBar";
 import { ChartWrapper } from "@/components/dashboard/ChartWrapper";
+import { RecentQueriesTable } from "@/components/dashboard/RecentQueriesTable";
 import { MOCK_OVERVIEW } from "@/lib/mockData";
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -119,6 +120,10 @@ export default function Overview() {
             </ResponsiveContainer>
           </div>
         </ChartWrapper>
+      </div>
+
+      <div className="mb-8">
+        <RecentQueriesTable />
       </div>
     </DashboardLayout>
   );

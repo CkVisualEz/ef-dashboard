@@ -144,3 +144,32 @@ export const MOCK_SHARES = {
     { name: "Tablet", shares: 140, downloads: 200 },
   ]
 };
+
+export interface RecentQuery {
+  sessionId: string;
+  date: string;
+  location: string;
+  classification: "Carpet" | "Hard Surface" | "Mixed";
+  device: "Mobile" | "Desktop" | "Tablet";
+  actions: number;
+  status: "Completed" | "Active";
+  thumbnail: string;
+}
+
+export const MOCK_RECENT_QUERIES: RecentQuery[] = Array.from({ length: 50 }, (_, i) => {
+  const actions = Math.floor(Math.random() * 15) + 6; // Ensure > 5 actions
+  const classifications: ("Carpet" | "Hard Surface" | "Mixed")[] = ["Carpet", "Hard Surface", "Mixed"];
+  const devices: ("Mobile" | "Desktop" | "Tablet")[] = ["Mobile", "Desktop", "Tablet"];
+  const locations = ["California, US", "Texas, US", "New York, US", "Florida, US", "Illinois, US", "Toronto, CA", "London, UK"];
+  
+  return {
+    sessionId: `SES-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
+    date: format(subDays(new Date(), Math.floor(Math.random() * 7)), "MMM dd, HH:mm"),
+    location: locations[Math.floor(Math.random() * locations.length)],
+    classification: classifications[Math.floor(Math.random() * classifications.length)],
+    device: devices[Math.floor(Math.random() * devices.length)],
+    actions: actions,
+    status: Math.random() > 0.3 ? "Completed" : "Active",
+    thumbnail: `https://picsum.photos/seed/${i}/50/50` // Placeholder for user uploaded image
+  };
+}).sort((a, b) => b.actions - a.actions);
