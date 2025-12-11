@@ -6,9 +6,10 @@ hidden = [".config", ".git", "generated-icon.png", "node_modules", "dist"]
 channel = "stable-24_05"
 
 [deployment]
-deploymentTarget = "static"
+deploymentTarget = "autoscale"
 build = ["npm", "run", "build"]
 publicDir = "dist/public"
+run = ["npm", "run", "start"]
 
 [[ports]]
 localPort = 5000
@@ -35,8 +36,16 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "npm run dev:client"
+args = "npm run dev"
 waitForPort = 5000
 
 [agent]
-mockupState = "MOCKUP"
+mockupState = "FULLSTACK"
+
+[userenv]
+
+[userenv.shared]
+MONGODB_URL = "mongodb+srv://yash_visualez:4db8IgMLR9oezxUZ@cluster0.pw9f7st.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+MONGODB_DB = "recommendation_db"
+NEW_PRODUCTS_COLLECTION = "ef_products"
+NEW_FEATURES_COLLECTION = "ef_features"
