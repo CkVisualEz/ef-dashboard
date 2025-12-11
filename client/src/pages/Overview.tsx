@@ -3,13 +3,56 @@ import { StatCard } from "@/components/dashboard/StatCard";
 import { FilterBar } from "@/components/dashboard/FilterBar";
 import { ChartWrapper } from "@/components/dashboard/ChartWrapper";
 import { RecentQueriesTable } from "@/components/dashboard/RecentQueriesTable";
-import { MOCK_OVERVIEW } from "@/lib/mockData";
+import { fetchOverview } from "@/lib/api";
+import { useQuery } from "@tanstack/react-query";
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend
 } from 'recharts';
+import { Skeleton } from "@/components/ui/skeleton";
 
 export default function Overview() {
+  const { data, isLoading } = useQuery({
+    queryKey: ['overview'],
+    queryFn: () => fetchOverview(),
+  });
+
+  if (isLoading) {
+    return (
+      <DashboardLayout>
+        <div className="mb-6">
+          <h1 className="text-3xl font-bold tracking-tight text-foreground">Overview</h1>
+          <p className="text-muted-foreground mt-1">
+            Performance summary for EF Color Match dashboard.
+          </p>
+        </div>
+        <div className="grid gap-4 md:grid-cols-3 mb-8">
+          {[1, 2, 3, 4, 5, 6].map((i) => (
+            <Skeleton key={i} className="h-32" />
+          ))}
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  const kpis = data?.kpis || {};
+  const deviceStats = data?.deviceStats || [];
+  
+  // Transform KPIs into the format expected by StatCard
+  const kpiCards = [
+    { label: "Total Active Users", value: kpis.totalUsers?.toLocaleString() || "0", change: 0, trend: "neutral" as const },
+    { label: "Total Image Uploads", value: kpis.totalUploads?.toLocaleString() || "0", change: 0, trend: "neutral" as const },
+    { label: "Avg Uploads/User", value: kpis.avgUploadsPerUser || "0", change: 0, trend: "neutral" as const },
+    { label: "Total Product Clicks", value: kpis.totalClicks?.toLocaleString() || "0", change: 0, trend: "neutral" as const },
+    { label: "Click Rate", value: `${kpis.clickRate}%` || "0%", change: 0, trend: "neutral" as const },
+  ];
+
+  const deviceChartData = deviceStats.map((stat: any, i: number) => ({
+    name: stat._id || 'Unknown',
+    value: stat.count,
+    fill: `var(--color-chart-${(i % 5) + 1})`
+  }));
+
   return (
     <DashboardLayout>
       <div className="mb-6">
@@ -22,102 +65,45 @@ export default function Overview() {
       <FilterBar />
 
       {/* KPI Grid */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 mb-8">
-        {MOCK_OVERVIEW.kpis.map((kpi, i) => (
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 mb-8">
+        {kpiCards.map((kpi, i) => (
           <StatCard key={i} data={kpi} />
         ))}
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-7 mb-8">
-        {/* Main Trend Chart */}
-        <ChartWrapper 
-          title="Upload Trends" 
-          description="Daily upload volume by surface type"
-          className="col-span-4"
-        >
-          <div className="h-[350px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={MOCK_OVERVIEW.uploadsTrend}>
-                <defs>
-                  <linearGradient id="colorCarpet" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="var(--color-chart-1)" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="var(--color-chart-1)" stopOpacity={0}/>
-                  </linearGradient>
-                  <linearGradient id="colorHard" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="var(--color-chart-2)" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="var(--color-chart-2)" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
-                <XAxis 
-                  dataKey="name" 
-                  stroke="hsl(var(--muted-foreground))" 
-                  fontSize={12} 
-                  tickLine={false} 
-                  axisLine={false} 
-                />
-                <YAxis 
-                  stroke="hsl(var(--muted-foreground))" 
-                  fontSize={12} 
-                  tickLine={false} 
-                  axisLine={false} 
-                  tickFormatter={(value) => `${value}`} 
-                />
-                <Tooltip 
-                  contentStyle={{ backgroundColor: 'hsl(var(--popover))', borderColor: 'hsl(var(--border))', borderRadius: 'var(--radius)' }}
-                  itemStyle={{ color: 'hsl(var(--popover-foreground))' }}
-                />
-                <Legend verticalAlign="top" height={36}/>
-                <Area 
-                  type="monotone" 
-                  dataKey="carpet" 
-                  name="Carpet"
-                  stroke="var(--color-chart-1)" 
-                  fillOpacity={1} 
-                  fill="url(#colorCarpet)" 
-                />
-                <Area 
-                  type="monotone" 
-                  dataKey="hardSurface" 
-                  name="Hard Surface"
-                  stroke="var(--color-chart-2)" 
-                  fillOpacity={1} 
-                  fill="url(#colorHard)" 
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </ChartWrapper>
-
+      <div className="grid gap-6 mb-8">
         {/* Device Split */}
         <ChartWrapper 
           title="Device Breakdown" 
           description="User sessions by device type"
-          className="col-span-3"
         >
           <div className="h-[350px] w-full flex items-center justify-center">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={MOCK_OVERVIEW.deviceSplit}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={80}
-                  outerRadius={110}
-                  paddingAngle={5}
-                  dataKey="value"
-                >
-                  {MOCK_OVERVIEW.deviceSplit.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.fill} />
-                  ))}
-                </Pie>
-                <Tooltip 
-                   contentStyle={{ backgroundColor: 'hsl(var(--popover))', borderColor: 'hsl(var(--border))', borderRadius: 'var(--radius)' }}
-                   itemStyle={{ color: 'hsl(var(--popover-foreground))' }}
-                />
-                <Legend verticalAlign="bottom" height={36}/>
-              </PieChart>
-            </ResponsiveContainer>
+            {deviceChartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={deviceChartData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={80}
+                    outerRadius={110}
+                    paddingAngle={5}
+                    dataKey="value"
+                  >
+                    {deviceChartData.map((entry: any, index: number) => (
+                      <Cell key={`cell-${index}`} fill={entry.fill} />
+                    ))}
+                  </Pie>
+                  <Tooltip 
+                     contentStyle={{ backgroundColor: 'hsl(var(--popover))', borderColor: 'hsl(var(--border))', borderRadius: 'var(--radius)' }}
+                     itemStyle={{ color: 'hsl(var(--popover-foreground))' }}
+                  />
+                  <Legend verticalAlign="bottom" height={36}/>
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <p className="text-muted-foreground">No device data available</p>
+            )}
           </div>
         </ChartWrapper>
       </div>
