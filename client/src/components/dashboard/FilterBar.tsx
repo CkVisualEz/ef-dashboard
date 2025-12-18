@@ -45,6 +45,8 @@ export function FilterBar({ onFilterChange, onExport, initialFilters, hideLocati
     }
     return undefined;
   });
+  const [tempDateRange, setTempDateRange] = useState<DateRange | undefined>(dateRange);
+  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
   const [classification, setClassification] = useState<string>(initialFilters?.classification || "all");
   const [device, setDevice] = useState<string>(initialFilters?.device || "all");
   const [state, setState] = useState<string>(initialFilters?.state || "");
@@ -56,14 +58,35 @@ export function FilterBar({ onFilterChange, onExport, initialFilters, hideLocati
     onFilterChangeRef.current = onFilterChange;
   }, [onFilterChange]);
 
+  // Initialize tempDateRange when popover opens
+  useEffect(() => {
+    if (isDatePickerOpen) {
+      setTempDateRange(dateRange);
+    }
+  }, [isDatePickerOpen]);
+
+  // Apply filters when date picker closes (only if both dates are selected)
+  const handleDatePickerClose = (open: boolean) => {
+    setIsDatePickerOpen(open);
+    if (!open && tempDateRange) {
+      // Only apply if both dates are selected
+      if (tempDateRange.from && tempDateRange.to) {
+        setDateRange(tempDateRange);
+      } else if (!tempDateRange.from && !tempDateRange.to) {
+        // Clear if both are empty
+        setDateRange(undefined);
+      }
+      // If only one date is selected, keep the previous range
+    }
+  };
+
   useEffect(() => {
     if (onFilterChangeRef.current) {
       const filters: FilterState = {};
       
-      if (dateRange?.from) {
+      // Only include date filters if both dates are selected
+      if (dateRange?.from && dateRange?.to) {
         filters.startDate = format(dateRange.from, "yyyy-MM-dd");
-      }
-      if (dateRange?.to) {
         filters.endDate = format(dateRange.to, "yyyy-MM-dd");
       }
       if (classification && classification !== "all") {
@@ -83,10 +106,11 @@ export function FilterBar({ onFilterChange, onExport, initialFilters, hideLocati
 
       onFilterChangeRef.current(filters);
     }
-  }, [dateRange, classification, device, state, city]);
+  }, [dateRange, classification, device, state, city, hideLocationFilters]);
 
   const clearFilters = () => {
     setDateRange(undefined);
+    setTempDateRange(undefined);
     setClassification("all");
     setDevice("all");
     if (!hideLocationFilters) {
@@ -118,7 +142,7 @@ export function FilterBar({ onFilterChange, onExport, initialFilters, hideLocati
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
-        <Popover>
+        <Popover open={isDatePickerOpen} onOpenChange={handleDatePickerClose}>
           <PopoverTrigger asChild>
             <Button
               variant={"outline"}
@@ -146,9 +170,9 @@ export function FilterBar({ onFilterChange, onExport, initialFilters, hideLocati
             <Calendar
               initialFocus
               mode="range"
-              defaultMonth={dateRange?.from}
-              selected={dateRange}
-              onSelect={setDateRange}
+              defaultMonth={tempDateRange?.from || dateRange?.from}
+              selected={tempDateRange}
+              onSelect={setTempDateRange}
               numberOfMonths={2}
             />
           </PopoverContent>
