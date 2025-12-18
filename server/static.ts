@@ -10,6 +10,10 @@ export function serveStatic(app: Express) {
     );
   }
 
+  // Serve static files from /EF-Dashboard/ path to match frontend build
+  app.use("/EF-Dashboard", express.static(distPath));
+
+  // Also serve from root for backwards compatibility
   app.use(express.static(distPath));
 
   // fall through to index.html if the file doesn't exist
