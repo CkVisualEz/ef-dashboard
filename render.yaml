@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: ef-dashboard-api
+    env: node
+    buildCommand: npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5000
+      - key: MONGODB_URL
+        sync: false
+      - key: MONGODB_DB
+        value: recommendation_db
+      - key: NEW_FEATURES_COLLECTION
+        value: analytics
+      - key: NEW_PRODUCTS_COLLECTION
+        value: ef_products
+      - key: JWT_SECRET
+        generateValue: true
+

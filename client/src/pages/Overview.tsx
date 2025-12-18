@@ -2,7 +2,6 @@ import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { FilterBar } from "@/components/dashboard/FilterBar";
 import { ChartWrapper } from "@/components/dashboard/ChartWrapper";
-import { RecentQueriesTable } from "@/components/dashboard/RecentQueriesTable";
 import { fetchOverview } from "@/lib/api";
 import { useQuery } from "@tanstack/react-query";
 import { 
@@ -10,11 +9,20 @@ import {
   PieChart, Pie, Cell, Legend
 } from 'recharts';
 import { Skeleton } from "@/components/ui/skeleton";
+import { useState, useCallback } from "react";
+import { FilterState } from "@/components/dashboard/FilterBar";
 
 export default function Overview() {
+  const [filters, setFilters] = useState<FilterState>({});
+  
+  // Memoize the filter change handler to prevent infinite loops
+  const handleFilterChange = useCallback((newFilters: FilterState) => {
+    setFilters(newFilters);
+  }, []);
+  
   const { data, isLoading } = useQuery({
-    queryKey: ['overview'],
-    queryFn: () => fetchOverview(),
+    queryKey: ['overview', filters],
+    queryFn: () => fetchOverview(filters as Record<string, string>),
   });
 
   if (isLoading) {
@@ -45,29 +53,36 @@ export default function Overview() {
     { label: "Avg Uploads/User", value: kpis.avgUploadsPerUser || "0", change: 0, trend: "neutral" as const },
     { label: "Total Product Clicks", value: kpis.totalClicks?.toLocaleString() || "0", change: 0, trend: "neutral" as const },
     { label: "Click Rate", value: `${kpis.clickRate}%` || "0%", change: 0, trend: "neutral" as const },
+    { label: "Share/Download Rate", value: `${kpis.shareDownloadRate || 0}%`, change: 0, trend: "neutral" as const },
   ];
 
-  const deviceChartData = deviceStats.map((stat: any, i: number) => ({
-    name: stat._id || 'Unknown',
-    value: stat.count,
-    fill: `var(--color-chart-${(i % 5) + 1})`
-  }));
+  const deviceChartData = deviceStats
+    .filter((stat: any) => stat._id && stat._id.toLowerCase() !== 'unknown')
+    .map((stat: any, i: number) => ({
+      name: stat._id || 'Unknown',
+      value: stat.count,
+      fill: `var(--color-chart-${(i % 5) + 1})`
+    }));
 
   return (
     <DashboardLayout>
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold tracking-tight text-foreground">Overview</h1>
-        <p className="text-muted-foreground mt-1">
+      <div className="mb-4 sm:mb-6">
+        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">Overview</h1>
+        <p className="text-sm sm:text-base text-muted-foreground mt-1">
           Performance summary for EF Color Match dashboard.
         </p>
       </div>
 
-      <FilterBar />
+      <FilterBar onFilterChange={handleFilterChange} initialFilters={filters} hideLocationFilters={true} />
 
       {/* KPI Grid */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 mb-8">
+      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 mb-6 sm:mb-8">
         {kpiCards.map((kpi, i) => (
-          <StatCard key={i} data={kpi} />
+          <StatCard 
+            key={i} 
+            data={kpi} 
+            hideComparison={true}
+          />
         ))}
       </div>
 
@@ -77,7 +92,7 @@ export default function Overview() {
           title="Device Breakdown" 
           description="User sessions by device type"
         >
-          <div className="h-[350px] w-full flex items-center justify-center">
+          <div className="h-[300px] sm:h-[350px] w-full flex items-center justify-center">
             {deviceChartData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -85,8 +100,8 @@ export default function Overview() {
                     data={deviceChartData}
                     cx="50%"
                     cy="50%"
-                    innerRadius={80}
-                    outerRadius={110}
+                    innerRadius={60}
+                    outerRadius={90}
                     paddingAngle={5}
                     dataKey="value"
                   >
@@ -106,10 +121,6 @@ export default function Overview() {
             )}
           </div>
         </ChartWrapper>
-      </div>
-
-      <div className="mb-8">
-        <RecentQueriesTable />
       </div>
     </DashboardLayout>
   );

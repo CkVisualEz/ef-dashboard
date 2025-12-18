@@ -6,6 +6,7 @@ import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 import { metaImagesPlugin } from "./vite-plugin-meta-images";
 
 export default defineConfig({
+  base: process.env.BASE_PATH || '/EF-Dashboard/',
   plugins: [
     react(),
     runtimeErrorOverlay(),
@@ -29,6 +30,7 @@ export default defineConfig({
       "@shared": path.resolve(import.meta.dirname, "shared"),
       "@assets": path.resolve(import.meta.dirname, "attached_assets"),
     },
+    preserveSymlinks: false,
   },
   css: {
     postcss: {
@@ -46,6 +48,7 @@ export default defineConfig({
     fs: {
       strict: true,
       deny: ["**/.*"],
+      allow: [import.meta.dirname],
     },
   },
 });

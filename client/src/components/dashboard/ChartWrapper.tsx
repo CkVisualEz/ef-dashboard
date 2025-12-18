@@ -6,14 +6,18 @@ interface ChartWrapperProps {
   description?: string;
   children: React.ReactNode;
   className?: string;
+  headerRight?: React.ReactNode;
 }
 
-export function ChartWrapper({ title, description, children, className }: ChartWrapperProps) {
+export function ChartWrapper({ title, description, children, className, headerRight }: ChartWrapperProps) {
   return (
     <Card className={cn("shadow-sm", className)}>
-      <CardHeader>
-        <CardTitle className="text-lg font-semibold">{title}</CardTitle>
-        {description && <CardDescription>{description}</CardDescription>}
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <div>
+          <CardTitle className="text-lg font-semibold">{title}</CardTitle>
+          {description && <CardDescription>{description}</CardDescription>}
+        </div>
+        {headerRight && <div>{headerRight}</div>}
       </CardHeader>
       <CardContent>
         {children}
