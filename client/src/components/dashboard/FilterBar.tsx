@@ -15,7 +15,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Calendar as CalendarIcon, Download, Filter, X } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
-import { format } from "date-fns";
+import { format, subDays } from "date-fns";
 import { cn } from "@/lib/utils";
 import { DateRange } from "react-day-picker";
 
@@ -36,15 +36,24 @@ interface FilterBarProps {
 }
 
 export function FilterBar({ onFilterChange, onExport, initialFilters, hideLocationFilters = false }: FilterBarProps) {
-  const [dateRange, setDateRange] = useState<DateRange | undefined>(() => {
+  // Default to last 30 days if no initial filters
+  const getDefaultDateRange = (): DateRange | undefined => {
     if (initialFilters?.startDate && initialFilters?.endDate) {
       return {
         from: new Date(initialFilters.startDate),
         to: new Date(initialFilters.endDate),
       };
     }
-    return undefined;
-  });
+    // Default to last 30 days
+    const today = new Date();
+    const thirtyDaysAgo = subDays(today, 30);
+    return {
+      from: thirtyDaysAgo,
+      to: today,
+    };
+  };
+
+  const [dateRange, setDateRange] = useState<DateRange | undefined>(getDefaultDateRange());
   const [tempDateRange, setTempDateRange] = useState<DateRange | undefined>(dateRange);
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
   const [classification, setClassification] = useState<string>(initialFilters?.classification || "all");
@@ -65,19 +74,21 @@ export function FilterBar({ onFilterChange, onExport, initialFilters, hideLocati
     }
   }, [isDatePickerOpen]);
 
-  // Apply filters when date picker closes (only if both dates are selected)
-  const handleDatePickerClose = (open: boolean) => {
-    setIsDatePickerOpen(open);
-    if (!open && tempDateRange) {
-      // Only apply if both dates are selected
-      if (tempDateRange.from && tempDateRange.to) {
-        setDateRange(tempDateRange);
-      } else if (!tempDateRange.from && !tempDateRange.to) {
-        // Clear if both are empty
-        setDateRange(undefined);
-      }
-      // If only one date is selected, keep the previous range
+  // Apply date range when Apply button is clicked
+  const handleApplyDateRange = () => {
+    if (tempDateRange?.from && tempDateRange?.to) {
+      setDateRange(tempDateRange);
+      setIsDatePickerOpen(false);
     }
+  };
+
+  // Handle date picker close - don't auto-apply, just close
+  const handleDatePickerClose = (open: boolean) => {
+    if (!open) {
+      // Reset tempDateRange to current dateRange when closing without applying
+      setTempDateRange(dateRange);
+    }
+    setIsDatePickerOpen(open);
   };
 
   useEffect(() => {
@@ -167,14 +178,36 @@ export function FilterBar({ onFilterChange, onExport, initialFilters, hideLocati
             </Button>
           </PopoverTrigger>
           <PopoverContent className="w-auto p-0" align="start">
-            <Calendar
-              initialFocus
-              mode="range"
-              defaultMonth={tempDateRange?.from || dateRange?.from}
-              selected={tempDateRange}
-              onSelect={setTempDateRange}
-              numberOfMonths={2}
-            />
+            <div>
+              <Calendar
+                initialFocus
+                mode="range"
+                defaultMonth={tempDateRange?.from || dateRange?.from}
+                selected={tempDateRange}
+                onSelect={setTempDateRange}
+                numberOfMonths={2}
+              />
+              <div className="p-3 border-t flex justify-end gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setTempDateRange(undefined);
+                    setDateRange(undefined);
+                    setIsDatePickerOpen(false);
+                  }}
+                >
+                  Clear
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={handleApplyDateRange}
+                  disabled={!tempDateRange?.from || !tempDateRange?.to}
+                >
+                  Apply
+                </Button>
+              </div>
+            </div>
           </PopoverContent>
         </Popover>
 

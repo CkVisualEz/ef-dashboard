@@ -1,6 +1,6 @@
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { fetchLatestQueries } from "@/lib/api";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
@@ -27,58 +27,23 @@ export default function LatestQueries() {
   const [loadedImages, setLoadedImages] = useState<Set<string>>(new Set());
   const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
   const imageRefs = useRef<Map<string, HTMLImageElement>>(new Map());
-  const observerTarget = useRef<HTMLDivElement>(null);
   const limit = 50;
   const maxTotal = 500;
 
   const {
     data,
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
     isLoading,
-  } = useInfiniteQuery({
+  } = useQuery({
     queryKey: ['latest-queries'],
-    queryFn: ({ pageParam = 1 }) => fetchLatestQueries(pageParam, limit),
-    getNextPageParam: (lastPage, allPages) => {
-      const totalLoaded = allPages.reduce((sum, page) => sum + (page.data?.length || 0), 0);
-      if (totalLoaded >= maxTotal) return undefined;
-      if (lastPage.pagination?.hasNext && totalLoaded < maxTotal) {
-        return allPages.length + 1;
-      }
-      return undefined;
-    },
+    queryFn: () => fetchLatestQueries(1, limit),
     refetchOnMount: true,
     refetchOnWindowFocus: true,
     staleTime: 0,
   });
 
-  // Flatten all pages into a single array
-  const allImages = data?.pages.flatMap(page => (page as any).data || []) || [];
+  // Get images from single query result
+  const allImages = (data as any)?.data || [];
   const validImages = allImages.filter((img: QueryImage) => !failedImages.has(img.id));
-
-  // Infinite scroll observer
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && hasNextPage && !isFetchingNextPage) {
-          fetchNextPage();
-        }
-      },
-      { threshold: 0.1 }
-    );
-
-    const currentTarget = observerTarget.current;
-    if (currentTarget) {
-      observer.observe(currentTarget);
-    }
-
-    return () => {
-      if (currentTarget) {
-        observer.unobserve(currentTarget);
-      }
-    };
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   const handleImageLoad = (id: string) => {
     setLoadedImages(prev => new Set(prev).add(id));
@@ -237,20 +202,6 @@ export default function LatestQueries() {
             ))}
           </div>
 
-          {/* Infinite scroll trigger */}
-          <div ref={observerTarget} className="h-20 flex items-center justify-center">
-            {isFetchingNextPage && (
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <Skeleton className="h-4 w-4 rounded-full" />
-                <span className="text-sm">Loading more images...</span>
-              </div>
-            )}
-            {!hasNextPage && validImages.length > 0 && (
-              <p className="text-sm text-muted-foreground">
-                All images loaded ({validImages.length} total)
-              </p>
-            )}
-          </div>
         </>
       )}
 

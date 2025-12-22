@@ -94,6 +94,52 @@ export async function registerRoutes(server: Server, app: Express) {
     };
   };
 
+  // Helper function to normalize dates for filtering
+  // Sets startDate to start of day (00:00:00Z) and endDate to end of day (23:59:59.999Z)
+  // Uses $gte for start and $lte for end to include all records from the selected day
+  // Format: ISODate("2025-12-22T00:00:00Z") and ISODate("2025-12-22T23:59:59.999Z")
+  // This ensures records created at any time on Dec 22 (including 23:59:59.999Z) are included
+  const normalizeDateRange = (startDate?: string | string[], endDate?: string | string[]): { startDateNormalized?: Date, endDateNormalized?: Date } => {
+    let start: Date | undefined;
+    let end: Date | undefined;
+
+    if (startDate) {
+      const startStr = Array.isArray(startDate) ? startDate[0] : startDate;
+      // Parse date string (format: YYYY-MM-DD) and ensure UTC
+      // Always append T00:00:00Z to ensure UTC parsing (not local timezone)
+      if (startStr.includes('T')) {
+        // Already has time component, parse as-is then normalize
+        start = new Date(startStr);
+      } else {
+        // YYYY-MM-DD format - append T00:00:00Z for explicit UTC
+        start = new Date(`${startStr}T00:00:00Z`);
+      }
+      // Ensure it's at start of day in UTC: 00:00:00Z
+      start.setUTCHours(0, 0, 0, 0);
+    }
+
+    if (endDate) {
+      const endStr = Array.isArray(endDate) ? endDate[0] : endDate;
+      // Parse date string (format: YYYY-MM-DD) and ensure UTC
+      // Set to end of the selected day: 23:59:59.999Z
+      // We'll use $lte instead of $lt to include all records up to the last millisecond
+      if (endStr.includes('T')) {
+        // Already has time component, parse as-is then set to end of day
+        end = new Date(endStr);
+      } else {
+        // YYYY-MM-DD format - set to end of day at 23:59:59.999Z
+        end = new Date(`${endStr}T00:00:00Z`);
+      }
+      // Set to end of day in UTC: 23:59:59.999Z
+      end.setUTCHours(23, 59, 59, 999);
+    }
+
+    return {
+      startDateNormalized: start,
+      endDateNormalized: end
+    };
+  };
+
   // Helper to parse query filters
   const parseFilters = (req: Request) => {
     const { startDate, endDate, classification, device, state, city } = req.query;
@@ -133,7 +179,10 @@ export async function registerRoutes(server: Server, app: Express) {
       filters["userLocation.city"] = city;
     }
 
-    return { filters, startDate, endDate, device };
+    // Normalize dates
+    const { startDateNormalized, endDateNormalized } = normalizeDateRange(startDate as string, endDate as string);
+
+    return { filters, startDate: startDateNormalized, endDate: endDateNormalized, device };
   };
 
   // Helper function to add device filter stages (must be added BEFORE grouping/counting)
@@ -169,17 +218,26 @@ export async function registerRoutes(server: Server, app: Express) {
       const features = db.collection(FEATURES_COLLECTION);
       const { filters, startDate, endDate, device } = parseFilters(req);
 
+      // Debug: Log date filters
+      if (startDate || endDate) {
+        console.log("[OVERVIEW] Date filters:", {
+          startDate: startDate ? startDate.toISOString() : null,
+          endDate: endDate ? endDate.toISOString() : null
+        });
+      }
+
       // Build base match stage
       const baseMatch: any[] = [{ $match: filters }];
       
       // Add date filter using _id timestamp
+      // Format: {"$gte": ISODate("2025-12-22T00:00:00Z"), "$lte": ISODate("2025-12-22T23:59:59.999Z")}
       if (startDate || endDate) {
         const dateExpr: any[] = [];
         if (startDate) {
-          dateExpr.push({ $gte: [{ $toDate: "$_id" }, new Date(startDate as string)] });
+          dateExpr.push({ $gte: [{ $toDate: "$_id" }, startDate] });
         }
         if (endDate) {
-          dateExpr.push({ $lte: [{ $toDate: "$_id" }, new Date(endDate as string)] });
+          dateExpr.push({ $lte: [{ $toDate: "$_id" }, endDate] }); // Use $lte to include all records up to end of day
         }
         if (dateExpr.length > 0) {
           baseMatch.push({ $match: { $expr: { $and: dateExpr } } });
@@ -452,6 +510,7 @@ export async function registerRoutes(server: Server, app: Express) {
         deviceStats,
         trendData
       };
+      // console.log("[OVERVIEW] Response:", response);
       res.json(response);
     } catch (error) {
       console.error("[OVERVIEW] Error:", error);
@@ -494,10 +553,10 @@ export async function registerRoutes(server: Server, app: Express) {
       if (startDate || endDate) {
         const dateFilter: any = {};
         if (startDate) {
-          dateFilter.$gte = new Date(startDate as string);
+          dateFilter.$gte = startDate;
         }
         if (endDate) {
-          dateFilter.$lte = new Date(endDate as string);
+          dateFilter.$lte = endDate; // endDate is end of day (23:59:59.999Z), so $lte includes all records from the selected day
         }
         baseMatch.push({ $match: { created_at: dateFilter } });
       }
@@ -521,8 +580,8 @@ export async function registerRoutes(server: Server, app: Express) {
         ...(startDate || endDate ? [{
           $match: {
             created_at: {
-              ...(startDate ? { $gte: new Date(startDate as string) } : {}),
-              ...(endDate ? { $lte: new Date(endDate as string) } : {})
+              ...(startDate ? { $gte: startDate } : {}),
+              ...(endDate ? { $lte: endDate } : {}) // Use $lte to include all records up to end of day
             }
           }
         }] : []),
@@ -668,17 +727,22 @@ export async function registerRoutes(server: Server, app: Express) {
       let trendDateEnd: Date = new Date();
       
       if (trendStartDate && trendEndDate) {
-        // Use provided date range
+        // Use provided date range - normalize to UTC
         trendDateStart = new Date(trendStartDate);
+        trendDateStart.setUTCHours(0, 0, 0, 0);
         trendDateEnd = new Date(trendEndDate);
+        trendDateEnd.setUTCHours(23, 59, 0, 0); // 23:59:00Z
       } else {
         // Default: last 30 days for days/week, this year for month
         if (trendPeriod === "month") {
           trendDateStart = new Date(new Date().getFullYear(), 0, 1); // Start of year
+          trendDateStart.setUTCHours(0, 0, 0, 0);
         } else {
           trendDateStart = new Date();
           trendDateStart.setDate(trendDateStart.getDate() - 30); // Last 30 days
+          trendDateStart.setUTCHours(0, 0, 0, 0);
         }
+        trendDateEnd.setUTCHours(23, 59, 0, 0); // 23:59:00Z
       }
 
       // Build trend pipeline
@@ -708,7 +772,7 @@ export async function registerRoutes(server: Server, app: Express) {
         $match: {
           created_at: {
             $gte: trendDateStart,
-            $lte: trendDateEnd
+            $lt: trendDateEnd // Use $lt (not $lte)
           }
         }
       });
@@ -902,8 +966,8 @@ export async function registerRoutes(server: Server, app: Express) {
       let currentDate = new Date(trendDateStart);
       const trendEnd = new Date(trendDateEnd);
       
-      // Ensure we include the end date
-      trendEnd.setHours(23, 59, 59, 999);
+      // Set end date to 23:59:00Z (using $lt, so it doesn't include exactly 23:59:00)
+      trendEnd.setUTCHours(23, 59, 0, 0);
       
       while (currentDate <= trendEnd) {
         let periodStr: string;
@@ -1050,18 +1114,30 @@ export async function registerRoutes(server: Server, app: Express) {
       const features = db.collection(FEATURES_COLLECTION);
       const { filters, startDate, endDate, device } = parseFilters(req);
 
+      // Debug: Log date filters
+      if (startDate || endDate) {
+        console.log("[CATEGORY-SUMMARY] Date filters:", {
+          startDate: startDate ? startDate.toISOString() : null,
+          endDate: endDate ? endDate.toISOString() : null,
+          startDateType: startDate ? typeof startDate : null,
+          endDateType: endDate ? typeof endDate : null
+        });
+      }
+
       // Build base match stage
       const baseMatch: any[] = [{ $match: filters }];
       
       // Add date filter using created_at
+      // Format: {"created_at": {"$gte": ISODate("2025-12-22T00:00:00Z"), "$lte": ISODate("2025-12-22T23:59:59.999Z")}}
       if (startDate || endDate) {
         const dateFilter: any = {};
         if (startDate) {
-          dateFilter.$gte = new Date(startDate as string);
+          dateFilter.$gte = startDate;
         }
         if (endDate) {
-          dateFilter.$lte = new Date(endDate as string);
+          dateFilter.$lte = endDate; // endDate is end of day (23:59:59.999Z), so $lte includes all records from the selected day
         }
+        console.log("[CATEGORY-SUMMARY] Date filter object:", JSON.stringify(dateFilter, null, 2));
         baseMatch.push({
           $match: {
             created_at: dateFilter
@@ -1284,15 +1360,21 @@ export async function registerRoutes(server: Server, app: Express) {
       let trendDateEnd: Date = new Date();
       
       if (trendStartDate && trendEndDate) {
+        // Use provided date range - normalize to UTC
         trendDateStart = new Date(trendStartDate);
+        trendDateStart.setUTCHours(0, 0, 0, 0);
         trendDateEnd = new Date(trendEndDate);
+        trendDateEnd.setUTCHours(23, 59, 0, 0); // 23:59:00Z
       } else {
         if (trendPeriod === "month") {
           trendDateStart = new Date(new Date().getFullYear(), 0, 1);
+          trendDateStart.setUTCHours(0, 0, 0, 0);
         } else {
           trendDateStart = new Date();
           trendDateStart.setDate(trendDateStart.getDate() - 30);
+          trendDateStart.setUTCHours(0, 0, 0, 0);
         }
+        trendDateEnd.setUTCHours(23, 59, 0, 0); // 23:59:00Z
       }
 
       const trendPipeline = [
@@ -1303,7 +1385,7 @@ export async function registerRoutes(server: Server, app: Express) {
             userId: { $ne: null },
             created_at: {
               $gte: trendDateStart,
-              $lte: trendDateEnd
+              $lt: trendDateEnd // Use $lt (not $lte)
             }
           }
         },
@@ -1363,8 +1445,8 @@ export async function registerRoutes(server: Server, app: Express) {
       let currentDate = new Date(trendDateStart);
       const trendEnd = new Date(trendDateEnd);
       
-      // Ensure we include the end date
-      trendEnd.setHours(23, 59, 59, 999);
+      // Set end date to 23:59:00Z (using $lt, so it doesn't include exactly 23:59:00)
+      trendEnd.setUTCHours(23, 59, 0, 0);
       
       while (currentDate <= trendEnd) {
         let periodStr: string;
@@ -1446,16 +1528,14 @@ export async function registerRoutes(server: Server, app: Express) {
       const baseMatch: any[] = [{ $match: filters }];
       
       // Add date filter using created_at
+      // Format: {"created_at": {"$gte": ISODate("2025-12-22T00:00:00Z"), "$lte": ISODate("2025-12-22T23:59:59.999Z")}}
       if (startDate || endDate) {
         const dateFilter: any = {};
         if (startDate) {
-          dateFilter.$gte = new Date(String(startDate));
+          dateFilter.$gte = startDate;
         }
         if (endDate) {
-          // Include the entire end date (end of day)
-          const endDateObj = new Date(String(endDate));
-          endDateObj.setHours(23, 59, 59, 999);
-          dateFilter.$lte = endDateObj;
+          dateFilter.$lte = endDate; // endDate is end of day (23:59:59.999Z), so $lte includes all records from the selected day
         }
         baseMatch.push({
           $match: {
@@ -2055,15 +2135,14 @@ export async function registerRoutes(server: Server, app: Express) {
       const baseMatch: any[] = [{ $match: filters }];
       
       // Add date filter using created_at
+      // Format: {"created_at": {"$gte": ISODate("2025-12-22T00:00:00Z"), "$lte": ISODate("2025-12-22T23:59:59.999Z")}}
       if (startDate || endDate) {
         const dateFilter: any = {};
         if (startDate) {
-          dateFilter.$gte = new Date(String(startDate));
+          dateFilter.$gte = startDate;
         }
         if (endDate) {
-          const endDateObj = new Date(String(endDate));
-          endDateObj.setHours(23, 59, 59, 999);
-          dateFilter.$lte = endDateObj;
+          dateFilter.$lte = endDate; // endDate is end of day (23:59:59.999Z), so $lte includes all records from the selected day
         }
         baseMatch.push({
           $match: {
@@ -2154,14 +2233,14 @@ export async function registerRoutes(server: Server, app: Express) {
                   }
                 },
                 in: {
-                  $cond: [
+              $cond: [
                     { $ne: ["$$matchResult", null] },
                     { $toInt: { $arrayElemAt: ["$$matchResult.captures", 0] } },
                     -1
-                  ]
-                }
-              }
-            },
+              ]
+            }
+          }
+        },
             state: { $ifNull: ["$userLocation.regionName", "$userLocation.region", "Unknown"] },
             city: { $ifNull: ["$userLocation.city", "Unknown"] }
           }
@@ -2315,15 +2394,14 @@ export async function registerRoutes(server: Server, app: Express) {
       const baseMatch: any[] = [{ $match: filters }];
       
       // Add date filter using created_at
+      // Format: {"created_at": {"$gte": ISODate("2025-12-22T00:00:00Z"), "$lte": ISODate("2025-12-22T23:59:59.999Z")}}
       if (startDate || endDate) {
         const dateFilter: any = {};
         if (startDate) {
-          dateFilter.$gte = new Date(String(startDate as string));
+          dateFilter.$gte = startDate;
         }
         if (endDate) {
-          const endDateObj = new Date(String(endDate as string));
-          endDateObj.setHours(23, 59, 59, 999);
-          dateFilter.$lte = endDateObj;
+          dateFilter.$lte = endDate; // endDate is end of day (23:59:59.999Z), so $lte includes all records from the selected day
         }
         baseMatch.push({
           $match: {
@@ -2406,7 +2484,7 @@ export async function registerRoutes(server: Server, app: Express) {
                   }
                 },
                 in: {
-                  $cond: [
+              $cond: [
                     { $ne: ["$$matchResult", null] },
                     { $toInt: { $arrayElemAt: ["$$matchResult.captures", 0] } },
                     -1
@@ -2715,15 +2793,14 @@ export async function registerRoutes(server: Server, app: Express) {
       const baseMatch: any[] = [{ $match: filters }];
       
       // Add date filter using created_at
+      // Format: {"created_at": {"$gte": ISODate("2025-12-22T00:00:00Z"), "$lte": ISODate("2025-12-22T23:59:59.999Z")}}
       if (startDate || endDate) {
         const dateFilter: any = {};
         if (startDate) {
-          dateFilter.$gte = new Date(String(startDate as string));
+          dateFilter.$gte = startDate;
         }
         if (endDate) {
-          const endDateObj = new Date(String(endDate as string));
-          endDateObj.setHours(23, 59, 59, 999);
-          dateFilter.$lte = endDateObj;
+          dateFilter.$lte = endDate; // endDate is end of day (23:59:59.999Z), so $lte includes all records from the selected day
         }
         baseMatch.push({
           $match: {
@@ -3075,15 +3152,14 @@ export async function registerRoutes(server: Server, app: Express) {
       const baseMatch: any[] = [{ $match: filters }];
       
       // Add date filter using created_at
+      // Format: {"created_at": {"$gte": ISODate("2025-12-22T00:00:00Z"), "$lte": ISODate("2025-12-22T23:59:59.999Z")}}
       if (startDate || endDate) {
         const dateFilter: any = {};
         if (startDate) {
-          dateFilter.$gte = new Date(String(startDate as string));
+          dateFilter.$gte = startDate;
         }
         if (endDate) {
-          const endDateObj = new Date(String(endDate as string));
-          endDateObj.setHours(23, 59, 59, 999);
-          dateFilter.$lte = endDateObj;
+          dateFilter.$lte = endDate; // endDate is end of day (23:59:59.999Z), so $lte includes all records from the selected day
         }
         baseMatch.push({
           $match: {
@@ -3474,7 +3550,7 @@ export async function registerRoutes(server: Server, app: Express) {
         byDevice: byDeviceData
           .filter((item: any) => item._id && item._id.toLowerCase() !== "unknown")
           .map((item: any) => ({
-            device: item._id,
+          device: item._id,
             shares: item.shares || 0,
             downloads: item.downloads || 0,
             total: (item.shares || 0) + (item.downloads || 0)
@@ -3511,10 +3587,8 @@ export async function registerRoutes(server: Server, app: Express) {
       const db = getDatabase();
       const features = db.collection(FEATURES_COLLECTION);
       
-      const page = parseInt(req.query.page as string) || 1;
-      const limit = parseInt(req.query.limit as string) || 50;
-      const maxTotal = 500;
-      const skip = (page - 1) * limit;
+      const limit = 50; // Fixed to 50 queries
+      const maxTotal = 50; // Maximum 50 images total
 
       // Build pipeline to fetch images with filters
       const pipeline = [
@@ -3565,13 +3639,7 @@ export async function registerRoutes(server: Server, app: Express) {
           $sort: { created_at: -1 }
         },
         {
-          $limit: maxTotal
-        },
-        {
-          $skip: skip
-        },
-        {
-          $limit: limit
+          $limit: maxTotal * 2 // Fetch more to account for invalid URLs
         },
         {
           $project: {
@@ -3619,31 +3687,50 @@ export async function registerRoutes(server: Server, app: Express) {
         }
       ];
 
-      const [data, countResult] = await Promise.all([
-        features.aggregate(pipeline).toArray(),
-        features.aggregate(countPipeline).toArray()
-      ]);
+      const rawData = await features.aggregate(pipeline).toArray();
 
-      const total = countResult[0]?.total || 0;
-      const totalPages = Math.ceil(Math.min(total, maxTotal) / limit);
+      // Helper function to validate image URL
+      const isValidImageUrl = async (url: string): Promise<boolean> => {
+        if (!url || typeof url !== 'string') return false;
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 5000);
+          const response = await fetch(url, { method: 'HEAD', signal: controller.signal });
+          clearTimeout(timeoutId);
+          const contentType = response.headers.get('content-type');
+          return response.ok && contentType?.startsWith('image/') === true;
+        } catch (error) {
+          return false;
+        }
+      };
+
+      // Validate image URLs and filter out invalid ones
+      const validData: any[] = [];
+      for (const item of rawData) {
+        if (validData.length >= maxTotal) break;
+        
+        const isValid = await isValidImageUrl(item.userImage);
+        if (isValid) {
+          validData.push({
+            id: item._id.toString(),
+            imageUrl: item.userImage,
+            downloadCount: item.downloadCount || 0,
+            shareCount: item.shareCount || 0,
+            createdAt: item.created_at,
+            sessionId: item.sessionId
+          });
+        }
+      }
 
       res.json({
-        data: data.map((item: any) => ({
-          id: item._id.toString(),
-          imageUrl: item.userImage,
-          downloadCount: item.downloadCount || 0,
-          shareCount: item.shareCount || 0,
-          createdAt: item.created_at,
-          // userId: item.userId,
-          sessionId: item.sessionId
-        })),
+        data: validData,
         pagination: {
-          page,
-          limit,
-          total: Math.min(total, maxTotal),
-          totalPages,
-          hasNext: page < totalPages,
-          hasPrev: page > 1
+          page: 1,
+          limit: validData.length,
+          total: validData.length,
+          totalPages: 1,
+          hasNext: false,
+          hasPrev: false
         }
       });
     } catch (error: any) {

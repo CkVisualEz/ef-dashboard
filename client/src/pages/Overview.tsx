@@ -9,11 +9,22 @@ import {
   PieChart, Pie, Cell, Legend
 } from 'recharts';
 import { Skeleton } from "@/components/ui/skeleton";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { FilterState } from "@/components/dashboard/FilterBar";
+import { format, subDays } from "date-fns";
 
 export default function Overview() {
-  const [filters, setFilters] = useState<FilterState>({});
+  // Initialize with last 30 days as default
+  const getDefaultFilters = (): FilterState => {
+    const today = new Date();
+    const thirtyDaysAgo = subDays(today, 30);
+    return {
+      startDate: format(thirtyDaysAgo, "yyyy-MM-dd"),
+      endDate: format(today, "yyyy-MM-dd"),
+    };
+  };
+
+  const [filters, setFilters] = useState<FilterState>(getDefaultFilters());
   
   // Memoize the filter change handler to prevent infinite loops
   const handleFilterChange = useCallback((newFilters: FilterState) => {
@@ -90,7 +101,7 @@ export default function Overview() {
         {/* Device Split */}
         <ChartWrapper 
           title="Device Breakdown" 
-          description="User sessions by device type"
+          description="Image Uploads by device type"
         >
           <div className="h-[300px] sm:h-[350px] w-full flex items-center justify-center">
             {deviceChartData.length > 0 ? (
