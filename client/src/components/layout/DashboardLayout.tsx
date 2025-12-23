@@ -11,14 +11,14 @@ import {
   Clock,
   Share2,
   Menu,
-  Search,
   Bell,
   UserCircle,
-  Image
+  Image,
+  LogOut
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
+import { useAuth } from "@/lib/auth";
 
 // Get base path for navigation (handles subdirectory deployment)
 const getBasePath = () => {
@@ -46,6 +46,7 @@ const NAV_ITEMS = [
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false); // Start closed on mobile/tablet, expanded on desktop
+  const { user, logout } = useAuth();
   
   // Auto-close sidebar on mobile/tablet when clicking a link
   const handleLinkClick = () => {
@@ -148,7 +149,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
       >
         {/* Top Header */}
         <header className="h-16 border-b bg-card px-4 sm:px-6 md:px-8 flex items-center justify-between sticky top-0 z-40">
-          <div className="flex items-center gap-2 sm:gap-4 flex-1 md:w-96">
+          <div className="flex items-center gap-2 sm:gap-4">
             <Button
               variant="ghost"
               size="icon"
@@ -158,14 +159,6 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             >
               <Menu className="h-5 w-5" />
             </Button>
-            <div className="relative w-full max-w-xs md:max-w-none">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input 
-                type="search" 
-                placeholder="Search..." 
-                className="w-full pl-9 bg-background text-sm" 
-              />
-            </div>
           </div>
           
           <div className="flex items-center gap-2 sm:gap-4">
@@ -176,11 +169,23 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             <Separator orientation="vertical" className="h-6 hidden sm:block" />
             <div className="flex items-center gap-2 sm:gap-3">
               <div className="text-right hidden lg:block">
-                <p className="text-sm font-medium">Admin User</p>
-                <p className="text-xs text-muted-foreground">admin@efcolormatch.com</p>
+                <p className="text-sm font-medium">{user?.username || 'User'}</p>
+                <p className="text-xs text-muted-foreground">Dashboard Admin</p>
               </div>
               <Button variant="ghost" size="icon" className="rounded-full">
                 <UserCircle className="h-6 w-6 sm:h-8 sm:w-8 text-muted-foreground" />
+              </Button>
+              <Button 
+                variant="ghost" 
+                size="icon"
+                onClick={() => {
+                  logout();
+                  const loginPath = BASE_PATH ? `${BASE_PATH}/login` : '/login';
+                  window.location.href = loginPath;
+                }}
+                title="Logout"
+              >
+                <LogOut className="h-4 w-4 sm:h-5 sm:w-5 text-muted-foreground" />
               </Button>
             </div>
           </div>

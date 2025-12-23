@@ -19,65 +19,95 @@ const getApiBase = () => {
 
 const API_BASE = getApiBase();
 
+// Helper to get auth headers
+const getAuthHeaders = () => {
+  const token = localStorage.getItem('ef_dashboard_token');
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
+};
+
 export async function fetchOverview(filters?: Record<string, string>) {
   const params = new URLSearchParams(filters);
-  const response = await fetch(`${API_BASE}/api/overview?${params}`);
+  const response = await fetch(`${API_BASE}/api/overview?${params}`, {
+    headers: getAuthHeaders(),
+  });
   if (!response.ok) throw new Error('Failed to fetch overview data');
   return response.json();
 }
 
 export async function fetchReturningUsers(filters?: Record<string, string>) {
   const params = new URLSearchParams(filters);
-  const response = await fetch(`${API_BASE}/api/returning-users?${params}`);
+  const response = await fetch(`${API_BASE}/api/returning-users?${params}`, {
+    headers: getAuthHeaders(),
+  });
   if (!response.ok) throw new Error('Failed to fetch returning users data');
   return response.json();
 }
 
 export async function fetchCategorySummary(filters?: Record<string, string>) {
   const params = new URLSearchParams(filters);
-  const response = await fetch(`${API_BASE}/api/category-summary?${params}`);
+  const response = await fetch(`${API_BASE}/api/category-summary?${params}`, {
+    headers: getAuthHeaders(),
+  });
   if (!response.ok) throw new Error('Failed to fetch category data');
   return response.json();
 }
 
 export async function fetchProductPerformance(filters?: Record<string, string>) {
   const params = new URLSearchParams(filters);
-  const response = await fetch(`${API_BASE}/api/product-performance?${params}`);
+  const response = await fetch(`${API_BASE}/api/product-performance?${params}`, {
+    headers: getAuthHeaders(),
+  });
   if (!response.ok) throw new Error('Failed to fetch product performance data');
   return response.json();
 }
 
 export async function fetchGeography(filters?: Record<string, string>) {
   const params = new URLSearchParams(filters);
-  const response = await fetch(`${API_BASE}/api/geography?${params}`);
+  const response = await fetch(`${API_BASE}/api/geography?${params}`, {
+    headers: getAuthHeaders(),
+  });
   if (!response.ok) throw new Error('Failed to fetch geography data');
   return response.json();
 }
 
 export async function fetchDeviceAnalytics(filters?: Record<string, string>) {
   const params = new URLSearchParams(filters);
-  const response = await fetch(`${API_BASE}/api/device-analytics?${params}`);
+  const response = await fetch(`${API_BASE}/api/device-analytics?${params}`, {
+    headers: getAuthHeaders(),
+  });
   if (!response.ok) throw new Error('Failed to fetch device analytics data');
   return response.json();
 }
 
 export async function fetchTimePatterns(filters?: Record<string, string>) {
   const params = new URLSearchParams(filters);
-  const response = await fetch(`${API_BASE}/api/time-patterns?${params}`);
+  const response = await fetch(`${API_BASE}/api/time-patterns?${params}`, {
+    headers: getAuthHeaders(),
+  });
   if (!response.ok) throw new Error('Failed to fetch time patterns data');
   return response.json();
 }
 
 export async function fetchSharesDownloads(filters?: Record<string, string>) {
   const params = new URLSearchParams(filters);
-  const response = await fetch(`${API_BASE}/api/shares-downloads?${params}`);
+  const response = await fetch(`${API_BASE}/api/shares-downloads?${params}`, {
+    headers: getAuthHeaders(),
+  });
   if (!response.ok) throw new Error('Failed to fetch shares/downloads data');
   return response.json();
 }
 
 export async function fetchLatestQueries(page: number = 1, limit: number = 50) {
   const params = new URLSearchParams({ page: page.toString(), limit: limit.toString() });
-  const response = await fetch(`${API_BASE}/api/latest-queries?${params}`);
+  const response = await fetch(`${API_BASE}/api/latest-queries?${params}`, {
+    headers: getAuthHeaders(),
+  });
   if (!response.ok) throw new Error('Failed to fetch latest queries');
   return response.json();
 }

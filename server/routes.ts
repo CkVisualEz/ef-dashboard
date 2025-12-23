@@ -3742,68 +3742,36 @@ export async function registerRoutes(server: Server, app: Express) {
     }
   });
 
-  // POST /api/login - Simple JWT authentication
+  // POST /api/login - Simple JWT authentication with hardcoded credentials
   app.post("/api/login", async (req: Request, res: Response) => {
     try {
-      console.log("[LOGIN] Request received");
       const { username, password } = req.body;
-      console.log("[LOGIN] Username provided:", username ? "yes" : "no");
 
       if (!username || !password) {
-        console.log("[LOGIN] Missing credentials");
         return res.status(400).json({ error: "Username and password required" });
       }
 
-      // For demo purposes, accept any credentials
-      // In production, verify against database
-      // For now, we'll use a simple check or create a default user
-      const db = getDatabase();
-      const users = db.collection("users");
+      // Hardcoded credentials
+      const HARDCODED_USERNAME = "marketing@engineeredfloors.com";
+      const HARDCODED_PASSWORD = "Admin@7665";
+      const DISPLAY_NAME = "admin";
 
-      // Check if user exists
-      console.log("[LOGIN] Looking up user:", username);
-      let user = await users.findOne({ username });
-
-      if (!user) {
-        console.log("[LOGIN] User not found, creating default admin user");
-        // Create default user for demo (password: admin)
-        const hashedPassword = await bcrypt.hash("admin", 10);
-        await users.insertOne({
-          username: "admin",
-          password: hashedPassword,
-          createdAt: new Date(),
-        });
-        user = await users.findOne({ username: "admin" });
-        console.log("[LOGIN] Default admin user created");
-      } else {
-        console.log("[LOGIN] User found");
-      }
-
-      if (!user) {
-        console.log("[LOGIN] Failed to create or find user");
-        return res.status(500).json({ error: "Failed to authenticate" });
-      }
-
-      // Verify password
-      const isValid = await bcrypt.compare(password, user.password);
-      console.log("[LOGIN] Password valid:", isValid || password === "admin");
-      if (!isValid && password !== "admin") {
-        console.log("[LOGIN] Invalid credentials");
+      // Verify credentials
+      if (username !== HARDCODED_USERNAME || password !== HARDCODED_PASSWORD) {
         return res.status(401).json({ error: "Invalid credentials" });
       }
 
       // Generate token
-      const token = generateToken(user._id.toString(), user.username);
-      console.log("[LOGIN] Token generated successfully");
+      const token = generateToken("1", DISPLAY_NAME);
 
       const response = {
         token,
         user: {
-          id: user._id.toString(),
-          username: user.username,
+          id: "1",
+          username: DISPLAY_NAME,
         },
       };
-      console.log("[LOGIN] Login successful");
+      
       res.json(response);
     } catch (error) {
       console.error("[LOGIN] Error:", error);

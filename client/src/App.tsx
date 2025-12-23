@@ -3,9 +3,12 @@ import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { AuthProvider } from "@/lib/auth";
+import { ProtectedRoute } from "@/components/ProtectedRoute";
 import NotFound from "@/pages/not-found";
 
 // Pages
+import Login from "@/pages/Login";
 import Overview from "@/pages/Overview";
 import ReturningUsers from "@/pages/ReturningUsers";
 import CategoryComparison from "@/pages/CategoryComparison";
@@ -80,19 +83,56 @@ function Router() {
     <Switch location={normalizedLocation}>
       <Route path="/">
         {() => {
-          const redirectPath = BASE_PATH ? `${BASE_PATH}/dashboard/overview` : '/dashboard/overview';
+          const redirectPath = BASE_PATH ? `${BASE_PATH}/login` : '/login';
           return <Redirect to={redirectPath} />;
         }}
       </Route>
-      <Route path="/dashboard/overview" component={Overview} />
-      <Route path="/dashboard/returning-users" component={ReturningUsers} />
-      <Route path="/dashboard/category-comparison" component={CategoryComparison} />
-      <Route path="/dashboard/product-performance" component={ProductPerformance} />
-      <Route path="/dashboard/geography" component={Geography} />
-      <Route path="/dashboard/device-analytics" component={DeviceAnalytics} />
-      <Route path="/dashboard/time-patterns" component={TimePatterns} />
-      <Route path="/dashboard/shares-downloads" component={SharesDownloads} />
-      <Route path="/dashboard/latest-queries" component={LatestQueries} />
+      <Route path="/login" component={Login} />
+      <Route path="/dashboard/overview">
+        <ProtectedRoute>
+          <Overview />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/dashboard/returning-users">
+        <ProtectedRoute>
+          <ReturningUsers />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/dashboard/category-comparison">
+        <ProtectedRoute>
+          <CategoryComparison />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/dashboard/product-performance">
+        <ProtectedRoute>
+          <ProductPerformance />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/dashboard/geography">
+        <ProtectedRoute>
+          <Geography />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/dashboard/device-analytics">
+        <ProtectedRoute>
+          <DeviceAnalytics />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/dashboard/time-patterns">
+        <ProtectedRoute>
+          <TimePatterns />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/dashboard/shares-downloads">
+        <ProtectedRoute>
+          <SharesDownloads />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/dashboard/latest-queries">
+        <ProtectedRoute>
+          <LatestQueries />
+        </ProtectedRoute>
+      </Route>
       <Route component={NotFound} />
     </Switch>
   );
@@ -101,10 +141,12 @@ function Router() {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Toaster />
-        <Router />
-      </TooltipProvider>
+      <AuthProvider>
+        <TooltipProvider>
+          <Toaster />
+          <Router />
+        </TooltipProvider>
+      </AuthProvider>
     </QueryClientProvider>
   );
 }
