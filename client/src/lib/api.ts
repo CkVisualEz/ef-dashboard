@@ -103,9 +103,8 @@ export async function fetchSharesDownloads(filters?: Record<string, string>) {
   return response.json();
 }
 
-export async function fetchLatestQueries(page: number = 1, limit: number = 50) {
-  const params = new URLSearchParams({ page: page.toString(), limit: limit.toString() });
-  const response = await fetch(`${API_BASE}/api/latest-queries?${params}`, {
+export async function fetchLatestQueries() {
+  const response = await fetch(`${API_BASE}/api/latest-queries`, {
     headers: getAuthHeaders(),
   });
   if (!response.ok) throw new Error('Failed to fetch latest queries');

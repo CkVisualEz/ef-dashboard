@@ -74,6 +74,19 @@ export function FilterBar({ onFilterChange, onExport, initialFilters, hideLocati
     }
   }, [isDatePickerOpen]);
 
+  // Handle date selection - allow resetting when both dates are already selected
+  const handleDateSelect = (range: DateRange | undefined) => {
+    // If both dates are already selected and user clicks a new date,
+    // start a new range with the clicked date as the from date
+    if (tempDateRange?.from && tempDateRange?.to && range?.from && !range.to) {
+      // User clicked a new date while both dates were selected, start fresh
+      setTempDateRange({ from: range.from, to: undefined });
+    } else {
+      // Normal range selection behavior
+      setTempDateRange(range);
+    }
+  };
+
   // Apply date range when Apply button is clicked
   const handleApplyDateRange = () => {
     if (tempDateRange?.from && tempDateRange?.to) {
@@ -153,41 +166,42 @@ export function FilterBar({ onFilterChange, onExport, initialFilters, hideLocati
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
-        <Popover open={isDatePickerOpen} onOpenChange={handleDatePickerClose}>
-          <PopoverTrigger asChild>
-            <Button
-              variant={"outline"}
-              className={cn(
-                "w-[240px] justify-start text-left font-normal",
-                !dateRange && "text-muted-foreground"
-              )}
-            >
-              <CalendarIcon className="mr-2 h-4 w-4" />
-              {dateRange?.from ? (
-                dateRange.to ? (
-                  <>
-                    {format(dateRange.from, "LLL dd, y")} -{" "}
-                    {format(dateRange.to, "LLL dd, y")}
-                  </>
+        <div className="flex flex-col">
+          <Popover open={isDatePickerOpen} onOpenChange={handleDatePickerClose}>
+            <PopoverTrigger asChild>
+              <Button
+                variant={"outline"}
+                className={cn(
+                  "w-[240px] justify-start text-left font-normal",
+                  !dateRange && "text-muted-foreground"
+                )}
+              >
+                <CalendarIcon className="mr-2 h-4 w-4" />
+                {dateRange?.from ? (
+                  dateRange.to ? (
+                    <>
+                      {format(dateRange.from, "LLL dd, y")} -{" "}
+                      {format(dateRange.to, "LLL dd, y")}
+                    </>
+                  ) : (
+                    format(dateRange.from, "LLL dd, y")
+                  )
                 ) : (
-                  format(dateRange.from, "LLL dd, y")
-                )
-              ) : (
-                <span>Pick a date range</span>
-              )}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-auto p-0" align="start">
-            <div>
-              <Calendar
-                initialFocus
-                mode="range"
-                defaultMonth={tempDateRange?.from || dateRange?.from}
-                selected={tempDateRange}
-                onSelect={setTempDateRange}
-                numberOfMonths={2}
-              />
-              <div className="p-3 border-t flex justify-end gap-2">
+                  <span>Pick a date range</span>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+              <div>
+                <Calendar
+                  initialFocus
+                  mode="range"
+                  defaultMonth={tempDateRange?.from || dateRange?.from}
+                  selected={tempDateRange}
+                  onSelect={handleDateSelect}
+                  numberOfMonths={2}
+                />
+                <div className="p-3 border-t flex justify-end gap-2">
                 <Button
                   variant="outline"
                   size="sm"
@@ -210,6 +224,8 @@ export function FilterBar({ onFilterChange, onExport, initialFilters, hideLocati
             </div>
           </PopoverContent>
         </Popover>
+        <p className="text-[10px] text-muted-foreground mt-1">Double click on start date to select start date</p>
+        </div>
 
         <Select value={classification} onValueChange={setClassification}>
           <SelectTrigger className="w-[180px]">
