@@ -63,6 +63,7 @@ export function FilterBar({ onFilterChange, onExport, initialFilters, hideLocati
 
   // Use ref to store the latest onFilterChange to avoid infinite loops
   const onFilterChangeRef = useRef(onFilterChange);
+  const lastEmittedFiltersRef = useRef<FilterState | null>(null);
   useEffect(() => {
     onFilterChangeRef.current = onFilterChange;
   }, [onFilterChange]);
@@ -104,6 +105,15 @@ export function FilterBar({ onFilterChange, onExport, initialFilters, hideLocati
     setIsDatePickerOpen(open);
   };
 
+  const areFiltersEqual = (a?: FilterState | null, b?: FilterState | null) => {
+    if (!a && !b) return true;
+    if (!a || !b) return false;
+    const aKeys = Object.keys(a);
+    const bKeys = Object.keys(b);
+    if (aKeys.length !== bKeys.length) return false;
+    return aKeys.every((key) => a[key as keyof FilterState] === b[key as keyof FilterState]);
+  };
+
   useEffect(() => {
     if (onFilterChangeRef.current) {
       const filters: FilterState = {};
@@ -128,7 +138,10 @@ export function FilterBar({ onFilterChange, onExport, initialFilters, hideLocati
         }
       }
 
-      onFilterChangeRef.current(filters);
+      if (!areFiltersEqual(lastEmittedFiltersRef.current, filters)) {
+        lastEmittedFiltersRef.current = filters;
+        onFilterChangeRef.current(filters);
+      }
     }
   }, [dateRange, classification, device, state, city, hideLocationFilters]);
 

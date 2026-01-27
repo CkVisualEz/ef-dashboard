@@ -7,6 +7,9 @@ import bcrypt from "bcryptjs";
 export async function registerRoutes(server: Server, app: Express) {
   const FEATURES_COLLECTION = process.env.NEW_FEATURES_COLLECTION || "analytics";
   const PRODUCTS_COLLECTION = process.env.NEW_PRODUCTS_COLLECTION || "ef_products";
+  const CACHE_TTL_MS = Number(process.env.API_CACHE_TTL_MS || "60000");
+  const MAX_CACHE_ENTRIES = Number(process.env.API_CACHE_MAX_ENTRIES || "200");
+  const responseCache = new Map<string, { expiresAt: number; payload: unknown }>();
   
   console.log("[ROUTES] Using collections:", {
     FEATURES_COLLECTION,
@@ -140,6 +143,44 @@ export async function registerRoutes(server: Server, app: Express) {
     };
   };
 
+  const buildCacheKey = (req: Request) => {
+    const authHeader = req.headers.authorization || "";
+    const cookieHeader = req.headers.cookie || "";
+    return `${req.originalUrl}|${authHeader}|${cookieHeader}`;
+  };
+
+  const withApiCache = (
+    handler: (req: Request, res: Response) => Promise<void>,
+  ) => {
+    return async (req: Request, res: Response) => {
+      if (req.method !== "GET" || CACHE_TTL_MS <= 0) {
+        return handler(req, res);
+      }
+
+      const key = buildCacheKey(req);
+      const cached = responseCache.get(key);
+      if (cached && cached.expiresAt > Date.now()) {
+        return res.json(cached.payload);
+      }
+
+      const originalJson = res.json.bind(res);
+      res.json = (body: unknown) => {
+        if (res.statusCode < 400) {
+          if (responseCache.size >= MAX_CACHE_ENTRIES) {
+            responseCache.clear();
+          }
+          responseCache.set(key, {
+            expiresAt: Date.now() + CACHE_TTL_MS,
+            payload: body,
+          });
+        }
+        return originalJson(body as any);
+      };
+
+      return handler(req, res);
+    };
+  };
+
   // Helper to parse query filters
   const parseFilters = (req: Request) => {
     const { startDate, endDate, classification, device, state, city } = req.query;
@@ -212,7 +253,7 @@ export async function registerRoutes(server: Server, app: Express) {
   };
 
   // GET /api/overview
-  app.get("/api/overview", async (req: Request, res: Response) => {
+  app.get("/api/overview", withApiCache(async (req: Request, res: Response) => {
     try {
       const db = getDatabase();
       const features = db.collection(FEATURES_COLLECTION);
@@ -270,8 +311,38 @@ export async function registerRoutes(server: Server, app: Express) {
           $count: "distinct_users"
         }
       ];
-      const totalUsersResult = await features.aggregate(totalUsersPipeline).toArray();
-      const totalUsers = totalUsersResult[0]?.distinct_users || 0;
+      const sharesPipeline = [
+        ...baseMatch,
+        ...getDeviceFilterStages(device),
+        {
+          $match: {
+            userId: {
+              $ne: null
+            },
+            user_actions: {
+              $exists: true,
+              $type: "array",
+              $ne: []
+            }
+          }
+        },
+        {
+          $unwind: {
+            path: "$user_actions",
+            preserveNullAndEmptyArrays: false
+          }
+        },
+        {
+          $match: {
+            "user_actions.action": {
+              $in: ["link_copied", "result_shared_on_mail"]
+            }
+          }
+        },
+        {
+          $count: "total"
+        }
+      ];
 
       // Total uploads - only count documents with userId
       const totalUploadsPipeline = [
@@ -286,8 +357,36 @@ export async function registerRoutes(server: Server, app: Express) {
         },
         { $count: "total" }
       ];
-      const totalUploadsResult = await features.aggregate(totalUploadsPipeline).toArray();
-      const totalUploads = totalUploadsResult[0]?.total || 0;
+      const downloadsPipeline = [
+        ...baseMatch,
+        ...getDeviceFilterStages(device),
+        {
+          $match: {
+            userId: {
+              $ne: null
+            },
+            user_actions: {
+              $exists: true,
+              $type: "array",
+              $ne: []
+            }
+          }
+        },
+        {
+          $unwind: {
+            path: "$user_actions",
+            preserveNullAndEmptyArrays: false
+          }
+        },
+        {
+          $match: {
+            "user_actions.action": "summary_downloaded"
+          }
+        },
+        {
+          $count: "total"
+        }
+      ];
 
       // Total clicks - count result_opened actions from user_actions array
       // Only count documents with userId and actions that contain "result_opened"
@@ -353,83 +452,8 @@ export async function registerRoutes(server: Server, app: Express) {
           }
         }
       ];
-      const clicksAgg = await features.aggregate(clicksPipeline).toArray();
-      const totalClicks = clicksAgg[0]?.total || 0;
-      const totalRank = clicksAgg[0]?.totalRank || 0;
-      const avgClickedRank = totalClicks > 0 ? (totalRank / totalClicks).toFixed(2) : "0.00";
-
-      // Total shares - count link_copied and result_shared_on_mail actions from user_actions array
-      // Only count documents with userId
-      const sharesAgg = await features.aggregate([
-        ...baseMatch,
-        ...getDeviceFilterStages(device),
-        {
-          $match: {
-            userId: {
-              $ne: null
-            },
-            user_actions: {
-              $exists: true,
-              $type: "array",
-              $ne: []
-            }
-          }
-        },
-        {
-          $unwind: {
-            path: "$user_actions",
-            preserveNullAndEmptyArrays: false
-          }
-        },
-        {
-          $match: {
-            "user_actions.action": {
-              $in: ["link_copied", "result_shared_on_mail"]
-            }
-          }
-        },
-        {
-          $count: "total"
-        }
-      ]).toArray();
-      const totalShares = sharesAgg[0]?.total || 0;
-
-      // Total downloads - count summary_downloaded actions from user_actions array
-      // Only count documents with userId
-      const downloadsAgg = await features.aggregate([
-        ...baseMatch,
-        ...getDeviceFilterStages(device),
-        {
-          $match: {
-            userId: {
-              $ne: null
-            },
-            user_actions: {
-              $exists: true,
-              $type: "array",
-              $ne: []
-            }
-          }
-        },
-        {
-          $unwind: {
-            path: "$user_actions",
-            preserveNullAndEmptyArrays: false
-          }
-        },
-        {
-          $match: {
-            "user_actions.action": "summary_downloaded"
-          }
-        },
-        {
-          $count: "total"
-        }
-      ]).toArray();
-      const totalDownloads = downloadsAgg[0]?.total || 0;
-
       // Uploads by classification - handle null/undefined classifications
-      const classificationStats = await features.aggregate([
+      const classificationStatsPipeline = [
         ...baseMatch,
         ...getDeviceFilterStages(device),
         {
@@ -438,11 +462,11 @@ export async function registerRoutes(server: Server, app: Express) {
             count: { $sum: 1 }
           }
         }
-      ]).toArray();
+      ];
 
       // Device breakdown (compute deviceType from deviceInfo if needed)
       // Note: If device filter is applied, this will only show the selected device
-      const deviceStats = await features.aggregate([
+      const deviceStatsPipeline = [
         ...baseMatch,
         {
           $addFields: {
@@ -466,13 +490,13 @@ export async function registerRoutes(server: Server, app: Express) {
             count: { $sum: 1 }
           }
         }
-      ]).toArray();
+      ];
 
       // Upload trends (last 14 days) - using _id timestamp
       const twoWeeksAgo = new Date();
       twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
       
-      const trendData = await features.aggregate([
+      const trendDataPipeline = [
         ...baseMatch,
         ...getDeviceFilterStages(device),
         {
@@ -492,7 +516,35 @@ export async function registerRoutes(server: Server, app: Express) {
           }
         },
         { $sort: { "_id.date": 1 } }
-      ]).toArray();
+      ];
+
+      const [
+        totalUsersResult,
+        totalUploadsResult,
+        clicksAgg,
+        sharesAgg,
+        downloadsAgg,
+        classificationStats,
+        deviceStats,
+        trendData
+      ] = await Promise.all([
+        features.aggregate(totalUsersPipeline).toArray(),
+        features.aggregate(totalUploadsPipeline).toArray(),
+        features.aggregate(clicksPipeline).toArray(),
+        features.aggregate(sharesPipeline).toArray(),
+        features.aggregate(downloadsPipeline).toArray(),
+        features.aggregate(classificationStatsPipeline).toArray(),
+        features.aggregate(deviceStatsPipeline).toArray(),
+        features.aggregate(trendDataPipeline).toArray()
+      ]);
+
+      const totalUsers = totalUsersResult[0]?.distinct_users || 0;
+      const totalUploads = totalUploadsResult[0]?.total || 0;
+      const totalClicks = clicksAgg[0]?.total || 0;
+      const totalRank = clicksAgg[0]?.totalRank || 0;
+      const avgClickedRank = totalClicks > 0 ? (totalRank / totalClicks).toFixed(2) : "0.00";
+      const totalShares = sharesAgg[0]?.total || 0;
+      const totalDownloads = downloadsAgg[0]?.total || 0;
 
       const response = {
         kpis: {
@@ -516,10 +568,10 @@ export async function registerRoutes(server: Server, app: Express) {
       console.error("[OVERVIEW] Error:", error);
       res.status(500).json({ error: "Failed to fetch overview data" });
     }
-  });
+  }));
 
   // GET /api/returning-users
-  app.get("/api/returning-users", async (req: Request, res: Response) => {
+  app.get("/api/returning-users", withApiCache(async (req: Request, res: Response) => {
     try {
       const db = getDatabase();
       const features = db.collection(FEATURES_COLLECTION);
@@ -1105,10 +1157,10 @@ export async function registerRoutes(server: Server, app: Express) {
       console.error("[RETURNING-USERS] Error:", error);
       res.status(500).json({ error: "Failed to fetch returning users data" });
     }
-  });
+  }));
 
   // GET /api/category-summary
-  app.get("/api/category-summary", async (req: Request, res: Response) => {
+  app.get("/api/category-summary", withApiCache(async (req: Request, res: Response) => {
     try {
       const db = getDatabase();
       const features = db.collection(FEATURES_COLLECTION);
@@ -1514,10 +1566,10 @@ export async function registerRoutes(server: Server, app: Express) {
       console.error("[CATEGORY-SUMMARY] Error:", error);
       res.status(500).json({ error: "Failed to fetch category data" });
     }
-  });
+  }));
 
   // GET /api/product-performance
-  app.get("/api/product-performance", async (req: Request, res: Response) => {
+  app.get("/api/product-performance", withApiCache(async (req: Request, res: Response) => {
     try {
       const db = getDatabase();
       const features = db.collection(FEATURES_COLLECTION);
@@ -2122,10 +2174,10 @@ export async function registerRoutes(server: Server, app: Express) {
       console.error("[PRODUCT-PERFORMANCE] Error:", error);
       res.status(500).json({ error: "Failed to fetch product performance data" });
     }
-  });
+  }));
 
   // GET /api/geography
-  app.get("/api/geography", async (req: Request, res: Response) => {
+  app.get("/api/geography", withApiCache(async (req: Request, res: Response) => {
     try {
       const db = getDatabase();
       const features = db.collection(FEATURES_COLLECTION);
@@ -2381,10 +2433,10 @@ export async function registerRoutes(server: Server, app: Express) {
       console.error("[GEOGRAPHY] Error:", error);
       res.status(500).json({ error: "Failed to fetch geography data" });
     }
-  });
+  }));
 
   // GET /api/device-analytics
-  app.get("/api/device-analytics", async (req: Request, res: Response) => {
+  app.get("/api/device-analytics", withApiCache(async (req: Request, res: Response) => {
     try {
       const db = getDatabase();
       const features = db.collection(FEATURES_COLLECTION);
@@ -2780,10 +2832,10 @@ export async function registerRoutes(server: Server, app: Express) {
       console.error("[DEVICE-ANALYTICS] Error:", error);
       res.status(500).json({ error: "Failed to fetch device analytics data" });
     }
-  });
+  }));
 
   // GET /api/time-patterns
-  app.get("/api/time-patterns", async (req: Request, res: Response) => {
+  app.get("/api/time-patterns", withApiCache(async (req: Request, res: Response) => {
     try {
       const db = getDatabase();
       const features = db.collection(FEATURES_COLLECTION);
@@ -3139,10 +3191,10 @@ export async function registerRoutes(server: Server, app: Express) {
       console.error("[TIME-PATTERNS] Error:", error);
       res.status(500).json({ error: "Failed to fetch time patterns data" });
     }
-  });
+  }));
 
   // GET /api/shares-downloads
-  app.get("/api/shares-downloads", async (req: Request, res: Response) => {
+  app.get("/api/shares-downloads", withApiCache(async (req: Request, res: Response) => {
     try {
       const db = getDatabase();
       const features = db.collection(FEATURES_COLLECTION);
@@ -3578,11 +3630,11 @@ export async function registerRoutes(server: Server, app: Express) {
         message: error?.message || "Unknown error"
       });
     }
-  });
+  }));
 
 
   // GET /api/latest-queries - Latest user queries with images (Pinterest-style)
-  app.get("/api/latest-queries", async (req: Request, res: Response) => {
+  app.get("/api/latest-queries", withApiCache(async (req: Request, res: Response) => {
     try {
       const db = getDatabase();
       const features = db.collection(FEATURES_COLLECTION);
@@ -3740,7 +3792,7 @@ export async function registerRoutes(server: Server, app: Express) {
         message: error?.message || "Unknown error"
       });
     }
-  });
+  }));
 
   // POST /api/login - Simple JWT authentication with hardcoded credentials
   app.post("/api/login", async (req: Request, res: Response) => {

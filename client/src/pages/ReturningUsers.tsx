@@ -19,9 +19,10 @@ import { Calendar as CalendarIcon } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { DateRange } from "react-day-picker";
+import { getDefaultDateFilters } from "@/lib/defaultFilters";
 
 export default function ReturningUsers() {
-  const [filters, setFilters] = useState<FilterState>({});
+  const [filters, setFilters] = useState<FilterState>(() => getDefaultDateFilters());
   
   // Trend chart controls (separate from main filters)
   const [trendPeriod, setTrendPeriod] = useState<"days" | "week" | "month">("days");
@@ -51,9 +52,6 @@ export default function ReturningUsers() {
   const { data, isLoading } = useQuery({
     queryKey: ['returning-users', queryParams],
     queryFn: () => fetchReturningUsers(queryParams),
-    refetchOnMount: true,
-    refetchOnWindowFocus: true,
-    staleTime: 0, // Always consider data stale, so it refetches on reload
   });
 
   const newUsers = data?.newUsers || 0;

@@ -12,9 +12,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useState, useMemo } from "react";
 import { exportToCSV } from "@/lib/csvExport";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { getDefaultDateFilters } from "@/lib/defaultFilters";
 
 export default function SharesDownloads() {
-  const [filters, setFilters] = useState<FilterState>({});
+  const [filters, setFilters] = useState<FilterState>(() => getDefaultDateFilters());
   const [timePeriod, setTimePeriod] = useState<'day' | 'week' | 'month'>('day');
   
   const queryParams = useMemo(() => {
@@ -28,9 +29,6 @@ export default function SharesDownloads() {
   const { data, isLoading } = useQuery({
     queryKey: ['shares-downloads', queryParams],
     queryFn: () => fetchSharesDownloads(queryParams),
-    refetchOnMount: true,
-    refetchOnWindowFocus: true,
-    staleTime: 0
   });
 
   // A. Aggregate Stats

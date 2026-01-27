@@ -12,16 +12,14 @@ import { useState } from "react";
 import { exportToCSV } from "@/lib/csvExport";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { getDefaultDateFilters } from "@/lib/defaultFilters";
 
 export default function DeviceAnalytics() {
-  const [filters, setFilters] = useState<FilterState>({});
+  const [filters, setFilters] = useState<FilterState>(() => getDefaultDateFilters());
   
   const { data, isLoading } = useQuery({
     queryKey: ['device-analytics', filters],
     queryFn: () => fetchDeviceAnalytics(filters),
-    refetchOnMount: true,
-    refetchOnWindowFocus: true,
-    staleTime: 0
   });
 
   const deviceData = data?.deviceData || [];

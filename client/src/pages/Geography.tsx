@@ -16,17 +16,15 @@ import { useState } from "react";
 import { exportToCSV } from "@/lib/csvExport";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { USMap } from "@/components/geography/USMap";
+import { getDefaultDateFilters } from "@/lib/defaultFilters";
 
 export default function Geography() {
-  const [filters, setFilters] = useState<FilterState>({});
+  const [filters, setFilters] = useState<FilterState>(() => getDefaultDateFilters());
   const [mapMetric, setMapMetric] = useState<'Unique Users' | 'Uploads' | 'PDP Clicks'>('Unique Users');
   
   const { data, isLoading } = useQuery({
     queryKey: ['geography', filters],
     queryFn: () => fetchGeography(filters),
-    refetchOnMount: true,
-    refetchOnWindowFocus: true,
-    staleTime: 0
   });
 
   const geoData = data?.geoData || [];

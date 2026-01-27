@@ -11,19 +11,17 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useState } from "react";
 import { exportToCSV } from "@/lib/csvExport";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { getDefaultDateFilters } from "@/lib/defaultFilters";
 
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 export default function TimePatterns() {
-  const [filters, setFilters] = useState<FilterState>({});
+  const [filters, setFilters] = useState<FilterState>(() => getDefaultDateFilters());
   const [hourlyMetric, setHourlyMetric] = useState<'uploads' | 'users'>('uploads');
   
   const { data, isLoading } = useQuery({
     queryKey: ['time-patterns', filters],
     queryFn: () => fetchTimePatterns(filters),
-    refetchOnMount: true,
-    refetchOnWindowFocus: true,
-    staleTime: 0
   });
 
   const hourlyData = data?.hourlyData || [];

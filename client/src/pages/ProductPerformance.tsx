@@ -18,16 +18,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useState } from "react";
 import { exportToCSV } from "@/lib/csvExport";
 import { Badge } from "@/components/ui/badge";
+import { getDefaultDateFilters } from "@/lib/defaultFilters";
 
 export default function ProductPerformance() {
-  const [filters, setFilters] = useState<FilterState>({});
+  const [filters, setFilters] = useState<FilterState>(() => getDefaultDateFilters());
   
   const { data, isLoading } = useQuery({
     queryKey: ['product-performance', filters],
     queryFn: () => fetchProductPerformance(filters),
-    refetchOnMount: true,
-    refetchOnWindowFocus: true,
-    staleTime: 0
   });
 
   const topProducts = data?.topProducts || [];

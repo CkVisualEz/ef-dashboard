@@ -11,6 +11,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { useState, useMemo, useEffect } from "react";
 import { exportToCSV } from "@/lib/csvExport";
+import { getDefaultDateFilters } from "@/lib/defaultFilters";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -22,7 +23,7 @@ import { cn } from "@/lib/utils";
 import { DateRange } from "react-day-picker";
 
 export default function CategoryComparison() {
-  const [filters, setFilters] = useState<FilterState>({});
+  const [filters, setFilters] = useState<FilterState>(() => getDefaultDateFilters());
   
   // Trend chart controls (separate from main filters)
   const [trendPeriod, setTrendPeriod] = useState<"days" | "week" | "month">("days");
@@ -67,9 +68,6 @@ export default function CategoryComparison() {
   const { data, isLoading } = useQuery({
     queryKey: ['category-summary', queryParams],
     queryFn: () => fetchCategorySummary(queryParams),
-    refetchOnMount: true,
-    refetchOnWindowFocus: true,
-    staleTime: 0,
   });
 
   const surfaceData = data?.surfaceData || {};
