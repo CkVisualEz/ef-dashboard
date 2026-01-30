@@ -550,7 +550,7 @@ export async function registerRoutes(server: Server, app: Express) {
         kpis: {
           totalUsers,
           totalUploads,
-          avgUploadsPerUser: totalUsers > 0 ? ((totalUploads / totalUsers)*100).toFixed(2) : 0,
+          avgUploadsPerUser: totalUsers > 0 ? (totalUploads / totalUsers).toFixed(2) : 0,
           totalClicks,
           clickRate: totalUploads > 0 ? ((totalClicks / totalUploads)*100).toFixed(2) : 0,
           avgClickedRank,
