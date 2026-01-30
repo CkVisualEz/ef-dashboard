@@ -37,28 +37,28 @@ interface FilterBarProps {
 
 export function FilterBar({ onFilterChange, onExport, initialFilters, hideLocationFilters = false }: FilterBarProps) {
   // Default to last 30 days if no initial filters
-  const parseUTCDate = (dateStr: string) => {
-    const [year, month, day] = dateStr.split("-").map(Number);
-    return new Date(Date.UTC(year, month - 1, day));
-  };
-  
   const getDefaultDateRange = (): DateRange | undefined => {
     if (initialFilters?.startDate && initialFilters?.endDate) {
+      // Parse "yyyy-MM-dd" as local time to avoid timezone shifts
+      // new Date("yyyy-MM-dd") defaults to UTC, which can shift the date to the previous day in western timezones
+      const parseLocal = (dateStr: string) => {
+        const [year, month, day] = dateStr.split('-').map(Number);
+        return new Date(year, month - 1, day);
+      };
+
       return {
-        from: parseUTCDate(initialFilters.startDate),
-        to: parseUTCDate(initialFilters.endDate),
+        from: parseLocal(initialFilters.startDate),
+        to: parseLocal(initialFilters.endDate),
       };
     }
-  
+    // Default to last 30 days
     const today = new Date();
     const thirtyDaysAgo = subDays(today, 30);
-  
     return {
       from: thirtyDaysAgo,
       to: today,
     };
   };
-  
 
   const [dateRange, setDateRange] = useState<DateRange | undefined>(getDefaultDateRange());
   const [tempDateRange, setTempDateRange] = useState<DateRange | undefined>(dateRange);
@@ -124,7 +124,7 @@ export function FilterBar({ onFilterChange, onExport, initialFilters, hideLocati
   useEffect(() => {
     if (onFilterChangeRef.current) {
       const filters: FilterState = {};
-      
+
       // Only include date filters if both dates are selected
       if (dateRange?.from && dateRange?.to) {
         filters.startDate = format(dateRange.from, "yyyy-MM-dd");
@@ -163,11 +163,11 @@ export function FilterBar({ onFilterChange, onExport, initialFilters, hideLocati
     }
   };
 
-  const hasActiveFilters = 
-    dateRange?.from || 
-    dateRange?.to || 
-    (classification && classification !== "all") || 
-    (device && device !== "all") || 
+  const hasActiveFilters =
+    dateRange?.from ||
+    dateRange?.to ||
+    (classification && classification !== "all") ||
+    (device && device !== "all") ||
     (!hideLocationFilters && (state || city));
 
   return (
@@ -222,29 +222,29 @@ export function FilterBar({ onFilterChange, onExport, initialFilters, hideLocati
                   numberOfMonths={2}
                 />
                 <div className="p-3 border-t flex justify-end gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setTempDateRange(undefined);
-                    setDateRange(undefined);
-                    setIsDatePickerOpen(false);
-                  }}
-                >
-                  Clear
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={handleApplyDateRange}
-                  disabled={!tempDateRange?.from || !tempDateRange?.to}
-                >
-                  Apply
-                </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setTempDateRange(undefined);
+                      setDateRange(undefined);
+                      setIsDatePickerOpen(false);
+                    }}
+                  >
+                    Clear
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={handleApplyDateRange}
+                    disabled={!tempDateRange?.from || !tempDateRange?.to}
+                  >
+                    Apply
+                  </Button>
+                </div>
               </div>
-            </div>
-          </PopoverContent>
-        </Popover>
-        <p className="text-[10px] text-muted-foreground mt-1">Double click on start date to select start date</p>
+            </PopoverContent>
+          </Popover>
+          <p className="text-[10px] text-muted-foreground mt-1">Double click on start date to select start date</p>
         </div>
 
         <Select value={classification} onValueChange={setClassification}>
