@@ -37,21 +37,28 @@ interface FilterBarProps {
 
 export function FilterBar({ onFilterChange, onExport, initialFilters, hideLocationFilters = false }: FilterBarProps) {
   // Default to last 30 days if no initial filters
+  const parseUTCDate = (dateStr: string) => {
+    const [year, month, day] = dateStr.split("-").map(Number);
+    return new Date(Date.UTC(year, month - 1, day));
+  };
+  
   const getDefaultDateRange = (): DateRange | undefined => {
     if (initialFilters?.startDate && initialFilters?.endDate) {
       return {
-        from: new Date(initialFilters.startDate),
-        to: new Date(initialFilters.endDate),
+        from: parseUTCDate(initialFilters.startDate),
+        to: parseUTCDate(initialFilters.endDate),
       };
     }
-    // Default to last 30 days
+  
     const today = new Date();
     const thirtyDaysAgo = subDays(today, 30);
+  
     return {
       from: thirtyDaysAgo,
       to: today,
     };
   };
+  
 
   const [dateRange, setDateRange] = useState<DateRange | undefined>(getDefaultDateRange());
   const [tempDateRange, setTempDateRange] = useState<DateRange | undefined>(dateRange);
