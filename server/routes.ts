@@ -253,7 +253,7 @@ export async function registerRoutes(server: Server, app: Express) {
   };
 
   // GET /api/overview
-  app.get("/api/overview", withApiCache(async (req: Request, res: Response) => {
+  app.get("/api/overview", async (req: Request, res: Response) => {
     try {
       const db = getDatabase();
       const features = db.collection(FEATURES_COLLECTION);
@@ -437,7 +437,7 @@ export async function registerRoutes(server: Server, app: Express) {
                   $cond: [
                     { $ne: ["$$matchResult", null] },
                     { $toInt: { $arrayElemAt: ["$$matchResult.captures", 0] } },
-                    0
+                    1
                   ]
                 }
               }
@@ -542,7 +542,7 @@ export async function registerRoutes(server: Server, app: Express) {
       const totalUploads = totalUploadsResult[0]?.total || 0;
       const totalClicks = clicksAgg[0]?.total || 0;
       const totalRank = clicksAgg[0]?.totalRank || 0;
-      const avgClickedRank = totalClicks > 0 ? (totalRank / totalClicks).toFixed(2) : "0.00";
+      const avgClickedRank = totalClicks > 0 ? ((totalRank / totalClicks)*100).toFixed(2) : "0.00";
       const totalShares = sharesAgg[0]?.total || 0;
       const totalDownloads = downloadsAgg[0]?.total || 0;
 
@@ -550,28 +550,28 @@ export async function registerRoutes(server: Server, app: Express) {
         kpis: {
           totalUsers,
           totalUploads,
-          avgUploadsPerUser: totalUsers > 0 ? (totalUploads / totalUsers).toFixed(1) : 0,
+          avgUploadsPerUser: totalUsers > 0 ? ((totalUploads / totalUsers)*100).toFixed(2) : 0,
           totalClicks,
-          clickRate: totalUploads > 0 ? (totalClicks / totalUploads).toFixed(1) : 0,
+          clickRate: totalUploads > 0 ? ((totalClicks / totalUploads)*100).toFixed(2) : 0,
           avgClickedRank,
           totalShares,
           totalDownloads,
-          shareDownloadRate: totalUploads > 0 ? ((totalShares + totalDownloads) / totalUploads).toFixed(1) : 0,
+          shareDownloadRate: totalUploads > 0 ? (((totalShares + totalDownloads) / totalUploads)*100).toFixed(2) : 0,
         },
         classificationStats,
         deviceStats,
         trendData
       };
-      // console.log("[OVERVIEW] Response:", response);
+      console.log("[OVERVIEW] Response:", JSON.stringify(response, null, 2));
       res.json(response);
     } catch (error) {
       console.error("[OVERVIEW] Error:", error);
       res.status(500).json({ error: "Failed to fetch overview data" });
     }
-  }));
+  });
 
   // GET /api/returning-users
-  app.get("/api/returning-users", withApiCache(async (req: Request, res: Response) => {
+  app.get("/api/returning-users", async (req: Request, res: Response) => {
     try {
       const db = getDatabase();
       const features = db.collection(FEATURES_COLLECTION);
@@ -1157,10 +1157,10 @@ export async function registerRoutes(server: Server, app: Express) {
       console.error("[RETURNING-USERS] Error:", error);
       res.status(500).json({ error: "Failed to fetch returning users data" });
     }
-  }));
+  });
 
   // GET /api/category-summary
-  app.get("/api/category-summary", withApiCache(async (req: Request, res: Response) => {
+  app.get("/api/category-summary", async (req: Request, res: Response) => {
     try {
       const db = getDatabase();
       const features = db.collection(FEATURES_COLLECTION);
@@ -1306,7 +1306,7 @@ export async function registerRoutes(server: Server, app: Express) {
                         $cond: [
                           { $ne: ["$$matchResult", null] },
                           { $toInt: { $arrayElemAt: ["$$matchResult.captures", 0] } },
-                          0
+                          1
                         ]
                       }
                     }
@@ -1566,10 +1566,10 @@ export async function registerRoutes(server: Server, app: Express) {
       console.error("[CATEGORY-SUMMARY] Error:", error);
       res.status(500).json({ error: "Failed to fetch category data" });
     }
-  }));
+  });
 
   // GET /api/product-performance
-  app.get("/api/product-performance", withApiCache(async (req: Request, res: Response) => {
+  app.get("/api/product-performance", async (req: Request, res: Response) => {
     try {
       const db = getDatabase();
       const features = db.collection(FEATURES_COLLECTION);
@@ -1710,7 +1710,7 @@ export async function registerRoutes(server: Server, app: Express) {
                   $cond: [
                     { $ne: ["$$matchResult", null] },
                     { $toInt: { $arrayElemAt: ["$$matchResult.captures", 0] } },
-                    -1
+                    1
                   ]
                 }
               }
@@ -1950,7 +1950,7 @@ export async function registerRoutes(server: Server, app: Express) {
                   $cond: [
                     { $ne: ["$$matchResult", null] },
                     { $toInt: { $arrayElemAt: ["$$matchResult.captures", 0] } },
-                    -1
+                    1
                   ]
                 }
               }
@@ -2057,7 +2057,7 @@ export async function registerRoutes(server: Server, app: Express) {
                   $cond: [
                     { $ne: ["$$matchResult", null] },
                     { $toInt: { $arrayElemAt: ["$$matchResult.captures", 0] } },
-                    -1
+                    1
                   ]
                 }
               }
@@ -2133,7 +2133,7 @@ export async function registerRoutes(server: Server, app: Express) {
                   $cond: [
                     { $ne: ["$$matchResult", null] },
                     { $toInt: { $arrayElemAt: ["$$matchResult.captures", 0] } },
-                    -1
+                    1
                   ]
                 }
               }
@@ -2174,10 +2174,10 @@ export async function registerRoutes(server: Server, app: Express) {
       console.error("[PRODUCT-PERFORMANCE] Error:", error);
       res.status(500).json({ error: "Failed to fetch product performance data" });
     }
-  }));
+  });
 
   // GET /api/geography
-  app.get("/api/geography", withApiCache(async (req: Request, res: Response) => {
+  app.get("/api/geography", async (req: Request, res: Response) => {
     try {
       const db = getDatabase();
       const features = db.collection(FEATURES_COLLECTION);
@@ -2288,7 +2288,7 @@ export async function registerRoutes(server: Server, app: Express) {
               $cond: [
                     { $ne: ["$$matchResult", null] },
                     { $toInt: { $arrayElemAt: ["$$matchResult.captures", 0] } },
-                    -1
+                    1
               ]
             }
           }
@@ -2433,10 +2433,10 @@ export async function registerRoutes(server: Server, app: Express) {
       console.error("[GEOGRAPHY] Error:", error);
       res.status(500).json({ error: "Failed to fetch geography data" });
     }
-  }));
+  });
 
   // GET /api/device-analytics
-  app.get("/api/device-analytics", withApiCache(async (req: Request, res: Response) => {
+  app.get("/api/device-analytics", async (req: Request, res: Response) => {
     try {
       const db = getDatabase();
       const features = db.collection(FEATURES_COLLECTION);
@@ -2539,7 +2539,7 @@ export async function registerRoutes(server: Server, app: Express) {
               $cond: [
                     { $ne: ["$$matchResult", null] },
                     { $toInt: { $arrayElemAt: ["$$matchResult.captures", 0] } },
-                    -1
+                    1
                   ]
                 }
               }
@@ -2749,7 +2749,7 @@ export async function registerRoutes(server: Server, app: Express) {
                   $cond: [
                     { $ne: ["$$matchResult", null] },
                     { $toInt: { $arrayElemAt: ["$$matchResult.captures", 0] } },
-                    -1
+                    1
                   ]
                 }
               }
@@ -2832,10 +2832,10 @@ export async function registerRoutes(server: Server, app: Express) {
       console.error("[DEVICE-ANALYTICS] Error:", error);
       res.status(500).json({ error: "Failed to fetch device analytics data" });
     }
-  }));
+  });
 
   // GET /api/time-patterns
-  app.get("/api/time-patterns", withApiCache(async (req: Request, res: Response) => {
+  app.get("/api/time-patterns", async (req: Request, res: Response) => {
     try {
       const db = getDatabase();
       const features = db.collection(FEATURES_COLLECTION);
@@ -3191,10 +3191,10 @@ export async function registerRoutes(server: Server, app: Express) {
       console.error("[TIME-PATTERNS] Error:", error);
       res.status(500).json({ error: "Failed to fetch time patterns data" });
     }
-  }));
+  });
 
   // GET /api/shares-downloads
-  app.get("/api/shares-downloads", withApiCache(async (req: Request, res: Response) => {
+  app.get("/api/shares-downloads", async (req: Request, res: Response) => {
     try {
       const db = getDatabase();
       const features = db.collection(FEATURES_COLLECTION);
@@ -3630,11 +3630,11 @@ export async function registerRoutes(server: Server, app: Express) {
         message: error?.message || "Unknown error"
       });
     }
-  }));
+  });
 
 
   // GET /api/latest-queries - Latest user queries with images (Pinterest-style)
-  app.get("/api/latest-queries", withApiCache(async (req: Request, res: Response) => {
+  app.get("/api/latest-queries", async (req: Request, res: Response) => {
     try {
       const db = getDatabase();
       const features = db.collection(FEATURES_COLLECTION);
@@ -3650,10 +3650,6 @@ export async function registerRoutes(server: Server, app: Express) {
               $exists: true, 
               $ne: null,
               $nin: [null, ""]
-            },
-            user_actions: { 
-              $exists: true, 
-              $type: "array"
             }
           }
         },
@@ -3683,15 +3679,10 @@ export async function registerRoutes(server: Server, app: Express) {
           }
         },
         {
-          $match: {
-            userActionsCount: { $gt: 3 }
-          }
-        },
-        {
           $sort: { created_at: -1 }
         },
         {
-          $limit: maxTotal * 2 // Fetch more to account for invalid URLs
+          $limit: maxTotal
         },
         {
           $project: {
@@ -3704,7 +3695,7 @@ export async function registerRoutes(server: Server, app: Express) {
             sessionId: 1
           }
         }
-      ];
+      ];      
 
       // Get total count (up to maxTotal)
       const countPipeline = [
@@ -3714,10 +3705,6 @@ export async function registerRoutes(server: Server, app: Express) {
               $exists: true, 
               $ne: null,
               $nin: [null, ""]
-            },
-            user_actions: { 
-              $exists: true, 
-              $type: "array"
             }
           }
         },
@@ -3727,41 +3714,37 @@ export async function registerRoutes(server: Server, app: Express) {
           }
         },
         {
-          $match: {
-            userActionsCount: { $gt: 3 }
-          }
-        },
-        {
           $limit: maxTotal
         },
         {
           $count: "total"
         }
-      ];
+      ];      
 
       const rawData = await features.aggregate(pipeline).toArray();
 
       // Helper function to validate image URL
-      const isValidImageUrl = async (url: string): Promise<boolean> => {
-        if (!url || typeof url !== 'string') return false;
-        try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 5000);
-          const response = await fetch(url, { method: 'HEAD', signal: controller.signal });
-          clearTimeout(timeoutId);
-          const contentType = response.headers.get('content-type');
-          return response.ok && contentType?.startsWith('image/') === true;
-        } catch (error) {
-          return false;
-        }
-      };
+      // const isValidImageUrl = async (url: string): Promise<boolean> => {
+      //   if (!url || typeof url !== 'string') return false;
+      //   try {
+      //     const controller = new AbortController();
+      //     const timeoutId = setTimeout(() => controller.abort(), 5000);
+      //     const response = await fetch(url, { method: 'HEAD', signal: controller.signal });
+      //     clearTimeout(timeoutId);
+      //     const contentType = response.headers.get('content-type');
+      //     return response.ok && contentType?.startsWith('image/') === true;
+      //   } catch (error) {
+      //     return false;
+      //   }
+      // };
 
       // Validate image URLs and filter out invalid ones
       const validData: any[] = [];
       for (const item of rawData) {
         if (validData.length >= maxTotal) break;
         
-        const isValid = await isValidImageUrl(item.userImage);
+        // const isValid = await isValidImageUrl(item.userImage);
+        const isValid = true;
         if (isValid) {
           validData.push({
             id: item._id.toString(),
@@ -3792,7 +3775,7 @@ export async function registerRoutes(server: Server, app: Express) {
         message: error?.message || "Unknown error"
       });
     }
-  }));
+  });
 
   // POST /api/login - Simple JWT authentication with hardcoded credentials
   app.post("/api/login", async (req: Request, res: Response) => {

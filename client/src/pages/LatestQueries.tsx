@@ -226,7 +226,13 @@ export default function LatestQueries() {
       ) : (
         <>
           {/* Masonry layout with equal 4px gaps - images flow naturally */}
-          <div className="columns-1 sm:columns-2 md:columns-3 gap-1 mb-8">
+          {/* <div className="columns-1 sm:columns-2 md:columns-3 gap-1 mb-8"> */}
+          <div
+            className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-1 mb-8"
+            style={{
+              // gridAutoRows: "8px"
+            }}
+          ></div><div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-1 mb-8">
             {validImages
               .filter((img: QueryImage) => !failedImages.has(img.id))
               .map((image: QueryImage, index: number) => {
@@ -255,7 +261,7 @@ export default function LatestQueries() {
                         }}
                         src={image.imageUrl}
                         alt={`Query ${image.id}`}
-                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                        className="w-full h-auto  object-cover transition-transform duration-500 group-hover:scale-105"
                         onError={() => handleImageError(image.id)}
                         style={{ display: 'block' }}
                       />

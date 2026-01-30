@@ -25,7 +25,7 @@ export default function ProductPerformance() {
   
   const { data, isLoading } = useQuery({
     queryKey: ['product-performance', filters],
-    queryFn: () => fetchProductPerformance(filters),
+    queryFn: () => fetchProductPerformance(filters as Record<string, string>),
   });
 
   const topProducts = data?.topProducts || [];
@@ -252,7 +252,7 @@ export default function ProductPerformance() {
         {/* Average Rank by Device */}
         <ChartWrapper 
           title="Avg Rank by Device" 
-          description="Average clicked rank split by Mobile vs Desktop" 
+          description="Average clicked rank split by Device Type" 
           className="col-span-1"
         >
           <div className="h-[300px] w-full">
