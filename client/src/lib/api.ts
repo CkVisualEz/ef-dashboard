@@ -111,3 +111,44 @@ export async function fetchLatestQueries() {
   return response.json();
 }
 
+export async function fetchClientConfigs() {
+  const response = await fetch(`${API_BASE}/api/client-configs`, {
+    headers: getAuthHeaders(),
+  });
+  if (!response.ok) throw new Error('Failed to fetch client configs');
+  return response.json();
+}
+
+export async function createClientConfig(payload: {
+  client_id: string;
+  domains: string[];
+  is_default?: boolean;
+  client_config: Record<string, unknown>;
+}) {
+  const response = await fetch(`${API_BASE}/api/client-configs`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw new Error('Failed to create client config');
+  return response.json();
+}
+
+export async function updateClientConfig(
+  id: string,
+  payload: {
+    client_id?: string;
+    domains?: string[];
+    is_default?: boolean;
+    client_config?: Record<string, unknown>;
+  }
+) {
+  const response = await fetch(`${API_BASE}/api/client-configs/${id}`, {
+    method: 'PUT',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw new Error('Failed to update client config');
+  return response.json();
+}
+

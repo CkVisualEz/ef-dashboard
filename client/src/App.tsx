@@ -18,6 +18,7 @@ import DeviceAnalytics from "@/pages/DeviceAnalytics";
 import TimePatterns from "@/pages/TimePatterns";
 import SharesDownloads from "@/pages/SharesDownloads";
 import LatestQueries from "@/pages/LatestQueries";
+import ClientConfigs from "@/pages/ClientConfigs";
 
 // Get base path for routing (handles subdirectory deployment)
 const getBasePath = () => {
@@ -131,6 +132,11 @@ function Router() {
       <Route path="/dashboard/latest-queries">
         <ProtectedRoute>
           <LatestQueries />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/dashboard/client-configs">
+        <ProtectedRoute>
+          <ClientConfigs />
         </ProtectedRoute>
       </Route>
       <Route component={NotFound} />

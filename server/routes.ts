@@ -1,7 +1,8 @@
 import type { Express, Request, Response } from "express";
 import { Server } from "http";
+import { ObjectId } from "mongodb";
 import { getDatabase } from "./db";
-import { generateToken, optionalAuth, AuthRequest } from "./auth";
+import { generateToken, optionalAuth, authenticateToken, AuthRequest } from "./auth";
 import bcrypt from "bcryptjs";
 
 export async function registerRoutes(server: Server, app: Express) {
@@ -3774,6 +3775,101 @@ export async function registerRoutes(server: Server, app: Express) {
         error: "Failed to fetch latest queries",
         message: error?.message || "Unknown error"
       });
+    }
+  });
+
+  // GET /api/client-configs - list all client configs
+  app.get("/api/client-configs", authenticateToken, async (req: Request, res: Response) => {
+    try {
+      const db = getDatabase();
+      const configs = db.collection("client_configs");
+      const results = await configs
+        .find({})
+        .sort({ client_id: 1 })
+        .toArray();
+
+      res.json({
+        data: results.map((item: any) => ({
+          ...item,
+          _id: item._id?.toString?.() || item._id
+        }))
+      });
+    } catch (error) {
+      console.error("[CLIENT-CONFIGS] Error:", error);
+      res.status(500).json({ error: "Failed to fetch client configs" });
+    }
+  });
+
+  // POST /api/client-configs - create a new client config
+  app.post("/api/client-configs", authenticateToken, async (req: Request, res: Response) => {
+    try {
+      const { client_id, domains, is_default, client_config } = req.body || {};
+      if (!client_id || typeof client_id !== "string") {
+        return res.status(400).json({ error: "client_id is required" });
+      }
+
+      const normalizedDomains = Array.isArray(domains)
+        ? domains.map((d: any) => String(d).trim()).filter(Boolean)
+        : [];
+
+      const db = getDatabase();
+      const configs = db.collection("client_configs");
+
+      if (is_default) {
+        await configs.updateMany({}, { $set: { is_default: false } });
+      }
+
+      const insertResult = await configs.insertOne({
+        client_id: client_id.trim(),
+        domains: normalizedDomains,
+        is_default: !!is_default,
+        client_config: client_config || {}
+      });
+
+      res.json({ id: insertResult.insertedId.toString() });
+    } catch (error) {
+      console.error("[CLIENT-CONFIGS] Error:", error);
+      res.status(500).json({ error: "Failed to create client config" });
+    }
+  });
+
+  // PUT /api/client-configs/:id - update a client config
+  app.put("/api/client-configs/:id", authenticateToken, async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { client_id, domains, is_default, client_config } = req.body || {};
+
+      if (!id) {
+        return res.status(400).json({ error: "id is required" });
+      }
+
+      const normalizedDomains = Array.isArray(domains)
+        ? domains.map((d: any) => String(d).trim()).filter(Boolean)
+        : [];
+
+      const updateDoc: any = {
+        ...(client_id ? { client_id: String(client_id).trim() } : {}),
+        ...(domains ? { domains: normalizedDomains } : {}),
+        ...(typeof is_default === "boolean" ? { is_default } : {}),
+        ...(client_config ? { client_config } : {})
+      };
+
+      const db = getDatabase();
+      const configs = db.collection("client_configs");
+
+      if (is_default) {
+        await configs.updateMany({}, { $set: { is_default: false } });
+      }
+
+      const result = await configs.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: updateDoc }
+      );
+
+      res.json({ updated: result.modifiedCount });
+    } catch (error) {
+      console.error("[CLIENT-CONFIGS] Error:", error);
+      res.status(500).json({ error: "Failed to update client config" });
     }
   });
 
