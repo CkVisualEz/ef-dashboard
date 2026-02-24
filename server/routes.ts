@@ -4,6 +4,7 @@ import { ObjectId } from "mongodb";
 import { getDatabase } from "./db";
 import { generateToken, optionalAuth, authenticateToken, AuthRequest } from "./auth";
 import bcrypt from "bcryptjs";
+import * as topojsonClient from "topojson-client";
 
 export async function registerRoutes(server: Server, app: Express) {
   const FEATURES_COLLECTION = process.env.NEW_FEATURES_COLLECTION || "analytics";
@@ -11,7 +12,7 @@ export async function registerRoutes(server: Server, app: Express) {
   const CACHE_TTL_MS = Number(process.env.API_CACHE_TTL_MS || "60000");
   const MAX_CACHE_ENTRIES = Number(process.env.API_CACHE_MAX_ENTRIES || "200");
   const responseCache = new Map<string, { expiresAt: number; payload: unknown }>();
-  
+
   console.log("[ROUTES] Using collections:", {
     FEATURES_COLLECTION,
     PRODUCTS_COLLECTION,
@@ -184,7 +185,7 @@ export async function registerRoutes(server: Server, app: Express) {
 
   // Helper to parse query filters
   const parseFilters = (req: Request) => {
-    const { startDate, endDate, classification, device, state, city } = req.query;
+    const { startDate, endDate, classification, device, state, city, domain } = req.query;
     const filters: any = {};
 
     // Always filter for analytics documents (those with sessionId)
@@ -203,8 +204,8 @@ export async function registerRoutes(server: Server, app: Express) {
       const escaped = classificationStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       // Replace underscores, spaces, and hyphens with a character class that matches any of them
       const pattern = escaped.replace(/[_\s-]/g, "[_\\s-]");
-      filters.classification = { 
-        $regex: new RegExp(`^${pattern}$`, "i") 
+      filters.classification = {
+        $regex: new RegExp(`^${pattern}$`, "i")
       };
     }
 
@@ -221,6 +222,22 @@ export async function registerRoutes(server: Server, app: Express) {
       filters["userLocation.city"] = city;
     }
 
+    // Domain filter: match against the hostname extracted from pageDetail field
+    if (domain && domain !== "all") {
+      const domainStr = String(domain);
+      // Match pageDetail that contains the requested domain as hostname (with or without www prefix)
+      filters.pageDetail = {
+        $regex: new RegExp(`https?://(?:www\\.)?${domainStr.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}`, "i")
+      };
+    } else {
+      // "All Domains" case — we still MUST globally exclude specific unwanted domains
+      // Exclude: roomup.in, getrara.ai, localhost, services.getrara.ai
+      const excludedDomains = ["roomup\\.in", "getrara\\.ai", "localhost", "services\\.getrara\\.ai"];
+      filters.pageDetail = {
+        $not: new RegExp(`https?://(?:www\\.)?(?:${excludedDomains.join("|")})`, "i")
+      };
+    }
+
     // Normalize dates
     const { startDateNormalized, endDateNormalized } = normalizeDateRange(startDate as string, endDate as string);
 
@@ -233,7 +250,7 @@ export async function registerRoutes(server: Server, app: Express) {
     if (!device || Array.isArray(device)) return [];
     const deviceStr = String(device);
     if (!deviceStr) return [];
-    
+
     return [
       {
         $addFields: {
@@ -253,6 +270,77 @@ export async function registerRoutes(server: Server, app: Express) {
     ];
   };
 
+  // ─── MAP DATA PROXY ──────────────────────────────────────────────────────────
+  // Fetches TopoJSON from Highcharts CDN, converts to GeoJSON server-side,
+  // and returns ready-to-render GeoJSON FeatureCollection to the browser.
+  // This avoids: (1) CORS issues, (2) client-side TopoJSON parsing issues.
+  const mapDataCache = new Map<string, { data: any; expiresAt: number }>();
+  const MAP_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+
+  app.get("/api/mapdata/:iso2", async (req: Request, res: Response) => {
+    try {
+      const iso2 = req.params.iso2.toLowerCase();
+      // Validate iso2 is a 2-letter code
+      if (!/^[a-z]{2}$/.test(iso2)) {
+        return res.status(400).json({ error: "Invalid country code" });
+      }
+
+      // Check cache (already converted to GeoJSON)
+      const cached = mapDataCache.get(iso2);
+      if (cached && cached.expiresAt > Date.now()) {
+        return res.json(cached.data);
+      }
+
+      // Try multiple CDNs (fallback chain)
+      const cdnUrls = [
+        `https://cdn.jsdelivr.net/npm/@highcharts/map-collection/countries/${iso2}/${iso2}-all.topo.json`,
+        `https://unpkg.com/@highcharts/map-collection/countries/${iso2}/${iso2}-all.topo.json`,
+        `https://code.highcharts.com/mapdata/countries/${iso2}/${iso2}-all.topo.json`,
+      ];
+
+      let topo: any = null;
+      for (const url of cdnUrls) {
+        try {
+          console.log(`[MAPDATA] Trying ${url}`);
+          const response = await fetch(url);
+          if (response.ok) {
+            topo = await response.json();
+            console.log(`[MAPDATA] Success from ${url}`);
+            break;
+          }
+          console.log(`[MAPDATA] ${url} returned ${response.status}`);
+        } catch (e) {
+          console.log(`[MAPDATA] ${url} failed: ${e}`);
+        }
+      }
+
+      if (!topo) {
+        return res.status(404).json({ error: "Map data not available from any CDN" });
+      }
+
+      // Convert TopoJSON → GeoJSON FeatureCollection (server-side)
+      // Highcharts uses objects.default; fallback to first object key
+      const objectKey = topo.objects?.default ? 'default' : Object.keys(topo.objects || {})[0];
+      if (!objectKey || !topo.objects[objectKey]) {
+        console.error(`[MAPDATA] No valid object key found in TopoJSON for ${iso2}`);
+        return res.status(500).json({ error: "Invalid map data structure" });
+      }
+
+      const geojson = topojsonClient.feature(topo, topo.objects[objectKey] as any);
+      console.log(`[MAPDATA] Converted ${iso2}: ${(geojson as any).features?.length || 0} features`);
+
+      // Cache the GeoJSON server-side
+      mapDataCache.set(iso2, { data: geojson, expiresAt: Date.now() + MAP_CACHE_TTL });
+
+      // Set cache headers so browser caches for 1 hour
+      res.set('Cache-Control', 'public, max-age=3600');
+      res.json(geojson);
+    } catch (error) {
+      console.error("[MAPDATA] Error:", error);
+      res.status(500).json({ error: "Failed to fetch map data" });
+    }
+  });
+
   // GET /api/overview
   app.get("/api/overview", async (req: Request, res: Response) => {
     try {
@@ -270,7 +358,7 @@ export async function registerRoutes(server: Server, app: Express) {
 
       // Build base match stage
       const baseMatch: any[] = [{ $match: filters }];
-      
+
       // Add date filter using _id timestamp
       // Format: {"$gte": ISODate("2025-12-22T00:00:00Z"), "$lte": ISODate("2025-12-22T23:59:59.999Z")}
       if (startDate || endDate) {
@@ -496,7 +584,7 @@ export async function registerRoutes(server: Server, app: Express) {
       // Upload trends (last 14 days) - using _id timestamp
       const twoWeeksAgo = new Date();
       twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
-      
+
       const trendDataPipeline = [
         ...baseMatch,
         ...getDeviceFilterStages(device),
@@ -543,7 +631,7 @@ export async function registerRoutes(server: Server, app: Express) {
       const totalUploads = totalUploadsResult[0]?.total || 0;
       const totalClicks = clicksAgg[0]?.total || 0;
       const totalRank = clicksAgg[0]?.totalRank || 0;
-      const avgClickedRank = totalClicks > 0 ? ((totalRank / totalClicks)*100).toFixed(2) : "0.00";
+      const avgClickedRank = totalClicks > 0 ? ((totalRank / totalClicks) * 100).toFixed(2) : "0.00";
       const totalShares = sharesAgg[0]?.total || 0;
       const totalDownloads = downloadsAgg[0]?.total || 0;
 
@@ -553,11 +641,11 @@ export async function registerRoutes(server: Server, app: Express) {
           totalUploads,
           avgUploadsPerUser: totalUsers > 0 ? (totalUploads / totalUsers).toFixed(2) : 0,
           totalClicks,
-          clickRate: totalUploads > 0 ? ((totalClicks / totalUploads)*100).toFixed(2) : 0,
+          clickRate: totalUploads > 0 ? ((totalClicks / totalUploads) * 100).toFixed(2) : 0,
           avgClickedRank,
           totalShares,
           totalDownloads,
-          shareDownloadRate: totalUploads > 0 ? (((totalShares + totalDownloads) / totalUploads)*100).toFixed(2) : 0,
+          shareDownloadRate: totalUploads > 0 ? (((totalShares + totalDownloads) / totalUploads) * 100).toFixed(2) : 0,
         },
         classificationStats,
         deviceStats,
@@ -594,6 +682,11 @@ export async function registerRoutes(server: Server, app: Express) {
         baseMatch.push({ $match: { classification: filters.classification } });
       }
 
+      // Add domain filter if present
+      if (filters.pageDetail) {
+        baseMatch.push({ $match: { pageDetail: filters.pageDetail } });
+      }
+
       // Add location filters if present
       if (filters["userLocation.state"]) {
         baseMatch.push({ $match: { "userLocation.state": filters["userLocation.state"] } });
@@ -601,7 +694,7 @@ export async function registerRoutes(server: Server, app: Express) {
       if (filters["userLocation.city"]) {
         baseMatch.push({ $match: { "userLocation.city": filters["userLocation.city"] } });
       }
-      
+
       // Add date filter using created_at field (if provided)
       if (startDate || endDate) {
         const dateFilter: any = {};
@@ -626,6 +719,8 @@ export async function registerRoutes(server: Server, app: Express) {
         },
         // Add classification filter if present
         ...(filters.classification ? [{ $match: { classification: filters.classification } }] : []),
+        // Add domain filter if present
+        ...(filters.pageDetail ? [{ $match: { pageDetail: filters.pageDetail } }] : []),
         // Add location filters if present
         ...(filters["userLocation.state"] ? [{ $match: { "userLocation.state": filters["userLocation.state"] } }] : []),
         ...(filters["userLocation.city"] ? [{ $match: { "userLocation.city": filters["userLocation.city"] } }] : []),
@@ -728,10 +823,10 @@ export async function registerRoutes(server: Server, app: Express) {
       // Average of all returning users' average gaps
       console.log("[RETURNING-USERS] Total average gap:", totalAverageGap);
       console.log("[RETURNING-USERS] Returning users with gaps:", returningUsersWithGaps);
-      const returningRate = returningUsersWithGaps > 0 
-        ? (totalAverageGap / returningUsersWithGaps).toFixed(1) 
+      const returningRate = returningUsersWithGaps > 0
+        ? (totalAverageGap / returningUsersWithGaps).toFixed(1)
         : "0.0";
-      
+
       // Debug logging to help diagnose issues
       if (returningUsers > 0 && returningUsersWithGaps === 0) {
         const sampleUser = validUsers.find((u: any) => u.sessionCount > 1);
@@ -745,7 +840,7 @@ export async function registerRoutes(server: Server, app: Express) {
               return new Date(d);
             })
             .filter((d: Date) => !isNaN(d.getTime()));
-          
+
           console.log("[RETURNING-USERS] Warning: No gaps calculated for returning users", {
             returningUsers,
             returningUsersWithGaps,
@@ -778,7 +873,7 @@ export async function registerRoutes(server: Server, app: Express) {
       // Default date range based on period
       let trendDateStart: Date;
       let trendDateEnd: Date = new Date();
-      
+
       if (trendStartDate && trendEndDate) {
         // Use provided date range - normalize to UTC
         trendDateStart = new Date(trendStartDate);
@@ -885,11 +980,11 @@ export async function registerRoutes(server: Server, app: Express) {
         ...getDeviceFilterStages(device),
         {
           $addFields: {
-            period: trendPeriod === "days" 
+            period: trendPeriod === "days"
               ? { $dateToString: { format: "%Y-%m-%d", date: { $ifNull: ["$created_at", { $toDate: "$_id" }] } } }
               : trendPeriod === "week"
-              ? { $dateToString: { format: "%Y-W%V", date: { $ifNull: ["$created_at", { $toDate: "$_id" }] } } }
-              : { $dateToString: { format: "%Y-%m", date: { $ifNull: ["$created_at", { $toDate: "$_id" }] } } }
+                ? { $dateToString: { format: "%Y-W%V", date: { $ifNull: ["$created_at", { $toDate: "$_id" }] } } }
+                : { $dateToString: { format: "%Y-%m", date: { $ifNull: ["$created_at", { $toDate: "$_id" }] } } }
           }
         },
         {
@@ -1018,10 +1113,10 @@ export async function registerRoutes(server: Server, app: Express) {
       const periodSet = new Set<string>(); // Use Set to avoid duplicates
       let currentDate = new Date(trendDateStart);
       const trendEnd = new Date(trendDateEnd);
-      
+
       // Set end date to 23:59:00Z (using $lt, so it doesn't include exactly 23:59:00)
       trendEnd.setUTCHours(23, 59, 0, 0);
-      
+
       while (currentDate <= trendEnd) {
         let periodStr: string;
         if (trendPeriod === "days") {
@@ -1043,7 +1138,7 @@ export async function registerRoutes(server: Server, app: Express) {
           allPeriods.push(periodStr);
         }
       }
-      
+
       // Sort periods to ensure correct order
       allPeriods.sort();
 
@@ -1065,7 +1160,7 @@ export async function registerRoutes(server: Server, app: Express) {
           // Convert userId to string for consistent lookup
           const userIdStr = String(userId);
           const userFirstSession = userFirstSessionMap.get(userIdStr);
-          
+
           if (!userFirstSession) {
             // If we don't have first session, we can't determine - skip this user
             return;
@@ -1074,17 +1169,17 @@ export async function registerRoutes(server: Server, app: Express) {
           const periodStart = parsePeriodStart(periodStr, trendPeriod);
           const periodStartDateOnly = getDateOnly(periodStart);
           const firstSessionDateOnly = getDateOnly(new Date(userFirstSession));
-          
+
           // Check if user has ANY session before this period
           // Since firstSession is the earliest session, if firstSession < periodStart, 
           // then user definitely has a session before this period (RETURNING USER)
           // If firstSession >= periodStart, then user's first session is in or after this period (NEW USER)
-          
+
           if (trendPeriod === "days") {
             // For days: check if first session is before this day
             const firstSessionTime = firstSessionDateOnly.getTime();
             const periodStartTime = periodStartDateOnly.getTime();
-            
+
             if (firstSessionTime < periodStartTime) {
               // User has session before this day - RETURNING USER
               returningUsersCount++;
@@ -1100,11 +1195,11 @@ export async function registerRoutes(server: Server, app: Express) {
             // For weeks: check if first session is before this week
             const periodEnd = getPeriodEnd(periodStart, trendPeriod);
             const periodEndDateOnly = getDateOnly(periodEnd);
-            
+
             const firstSessionTime = firstSessionDateOnly.getTime();
             const periodStartTime = periodStartDateOnly.getTime();
             const periodEndTime = periodEndDateOnly.getTime();
-            
+
             if (firstSessionTime < periodStartTime) {
               // User has session before this week - RETURNING USER
               returningUsersCount++;
@@ -1120,11 +1215,11 @@ export async function registerRoutes(server: Server, app: Express) {
             // For months: check if first session is before this month
             const periodEnd = getPeriodEnd(periodStart, trendPeriod);
             const periodEndDateOnly = getDateOnly(periodEnd);
-            
+
             const firstSessionTime = firstSessionDateOnly.getTime();
             const periodStartTime = periodStartDateOnly.getTime();
             const periodEndTime = periodEndDateOnly.getTime();
-            
+
             if (firstSessionTime < periodStartTime) {
               // User has session before this month - RETURNING USER
               returningUsersCount++;
@@ -1179,7 +1274,7 @@ export async function registerRoutes(server: Server, app: Express) {
 
       // Build base match stage
       const baseMatch: any[] = [{ $match: filters }];
-      
+
       // Add date filter using created_at
       // Format: {"created_at": {"$gte": ISODate("2025-12-22T00:00:00Z"), "$lte": ISODate("2025-12-22T23:59:59.999Z")}}
       if (startDate || endDate) {
@@ -1257,10 +1352,10 @@ export async function registerRoutes(server: Server, app: Express) {
           $facet: {
             // Basic metrics: uploads and users
             basicMetrics: [
-        {
-          $group: {
+              {
+                $group: {
                   _id: "$normalizedClassification",
-            uploads: { $sum: 1 },
+                  uploads: { $sum: 1 },
                   users: { $addToSet: "$userId" }
                 }
               }
@@ -1411,7 +1506,7 @@ export async function registerRoutes(server: Server, app: Express) {
 
       let trendDateStart: Date;
       let trendDateEnd: Date = new Date();
-      
+
       if (trendStartDate && trendEndDate) {
         // Use provided date range - normalize to UTC
         trendDateStart = new Date(trendStartDate);
@@ -1445,11 +1540,11 @@ export async function registerRoutes(server: Server, app: Express) {
         {
           $addFields: {
             normalizedClassification: normalizeClassification,
-            period: trendPeriod === "days" 
+            period: trendPeriod === "days"
               ? { $dateToString: { format: "%Y-%m-%d", date: { $ifNull: ["$created_at", { $toDate: "$_id" }] } } }
               : trendPeriod === "week"
-              ? { $dateToString: { format: "%Y-W%V", date: { $ifNull: ["$created_at", { $toDate: "$_id" }] } } }
-              : { $dateToString: { format: "%Y-%m", date: { $ifNull: ["$created_at", { $toDate: "$_id" }] } } }
+                ? { $dateToString: { format: "%Y-W%V", date: { $ifNull: ["$created_at", { $toDate: "$_id" }] } } }
+                : { $dateToString: { format: "%Y-%m", date: { $ifNull: ["$created_at", { $toDate: "$_id" }] } } }
           }
         },
         {
@@ -1476,7 +1571,7 @@ export async function registerRoutes(server: Server, app: Express) {
       ];
 
       const trendDataRaw = await features.aggregate(trendPipeline).toArray();
-      
+
       // Create a map of period -> categories for quick lookup
       const periodDataMap = new Map<string, any[]>();
       trendDataRaw.forEach((item: any) => {
@@ -1497,10 +1592,10 @@ export async function registerRoutes(server: Server, app: Express) {
       const periodSet = new Set<string>();
       let currentDate = new Date(trendDateStart);
       const trendEnd = new Date(trendDateEnd);
-      
+
       // Set end date to 23:59:00Z (using $lt, so it doesn't include exactly 23:59:00)
       trendEnd.setUTCHours(23, 59, 0, 0);
-      
+
       while (currentDate <= trendEnd) {
         let periodStr: string;
         if (trendPeriod === "days") {
@@ -1522,7 +1617,7 @@ export async function registerRoutes(server: Server, app: Express) {
           allPeriods.push(periodStr);
         }
       }
-      
+
       // Sort periods to ensure correct order
       allPeriods.sort();
 
@@ -1579,7 +1674,7 @@ export async function registerRoutes(server: Server, app: Express) {
 
       // Build base match stage
       const baseMatch: any[] = [{ $match: filters }];
-      
+
       // Add date filter using created_at
       // Format: {"created_at": {"$gte": ISODate("2025-12-22T00:00:00Z"), "$lte": ISODate("2025-12-22T23:59:59.999Z")}}
       if (startDate || endDate) {
@@ -1764,11 +1859,11 @@ export async function registerRoutes(server: Server, app: Express) {
       // Note: searchResults might contain SKU IDs, public_ids, or product objects
       // We'll use public_id as the key for both impressions and clicks
       const publicIdMap = new Map<string, any>();
-      
+
       // Add impressions - searchResults might be SKU IDs or public_ids
       // We'll need to look up products to get public_ids for impressions
       const impressionIdentifiers = impressionsData.map((item: any) => String(item._id));
-      
+
       // Try to find products by both sku and public_id to map impressions to public_ids
       const impressionProducts = await products.find({
         $or: [
@@ -1777,7 +1872,7 @@ export async function registerRoutes(server: Server, app: Express) {
           { sku_id: { $in: impressionIdentifiers } }
         ]
       }).toArray();
-      
+
       // Create a map of sku/sku_id/public_id -> public_id
       const identifierToPublicId = new Map<string, string>();
       impressionProducts.forEach((p: any) => {
@@ -1787,7 +1882,7 @@ export async function registerRoutes(server: Server, app: Express) {
           identifierToPublicId.set(String(p.public_id), p.public_id);
         }
       });
-      
+
       // Add impressions using public_id
       impressionsData.forEach((item: any) => {
         const identifier = String(item._id);
@@ -1837,7 +1932,7 @@ export async function registerRoutes(server: Server, app: Express) {
       // Step 4: Enrich with product details and calculate final metrics
       const publicIds = Array.from(publicIdMap.keys());
       const productDetails = await products.find({ public_id: { $in: publicIds } }).toArray();
-      
+
       const topProducts = Array.from(publicIdMap.values())
         .map((productData: any) => {
           const product = productDetails.find((p: any) => p.public_id === productData.publicId);
@@ -1845,9 +1940,9 @@ export async function registerRoutes(server: Server, app: Express) {
           const impressions = productData.impressions || 0;
           const ctr = impressions > 0 ? ((clicks / impressions) * 100) : 0;
           const avgRank = clicks > 0 ? (productData.totalRank / clicks) : 0;
-          
+
           // Format product name: color_id + series_name + variant_name
-          const productName = product 
+          const productName = product
             ? `${product.color_id || ''} ${product.series_name || ''} ${product.variant_name || ''}`.trim() || productData.publicId
             : productData.publicId;
 
@@ -1889,7 +1984,7 @@ export async function registerRoutes(server: Server, app: Express) {
             }
           }
 
-        return {
+          return {
             sku: product?.sku_id || productData.publicId, // Use sku_id from product or fallback to publicId
             productName,
             category,
@@ -1996,7 +2091,7 @@ export async function registerRoutes(server: Server, app: Express) {
         }
       ];
       const rankDistributionData = await features.aggregate(rankDistributionPipeline).toArray();
-      
+
       // Calculate percentages
       const totalClicks = rankDistributionData.reduce((sum: number, item: any) => sum + (item.clicks || 0), 0);
       const rankDistribution = {
@@ -2007,7 +2102,7 @@ export async function registerRoutes(server: Server, app: Express) {
       };
       rankDistributionData.forEach((item: any) => {
         if (rankDistribution.hasOwnProperty(item._id)) {
-          rankDistribution[item._id as keyof typeof rankDistribution] = totalClicks > 0 
+          rankDistribution[item._id as keyof typeof rankDistribution] = totalClicks > 0
             ? parseFloat(((item.clicks / totalClicks) * 100).toFixed(2))
             : 0;
         }
@@ -2080,11 +2175,11 @@ export async function registerRoutes(server: Server, app: Express) {
         }
       ];
       const avgRankByCategoryData = await features.aggregate(avgRankByCategoryPipeline).toArray();
-      
+
       const avgRankByCategory: any = {};
       avgRankByCategoryData.forEach((item: any) => {
         const category = item._id === "hard_surface" ? "Hard Surface" : item._id === "carpet" ? "Carpet" : "Mixed";
-        avgRankByCategory[category] = item.clicks > 0 
+        avgRankByCategory[category] = item.clicks > 0
           ? parseFloat((item.totalRank / item.clicks).toFixed(2))
           : 0;
       });
@@ -2156,11 +2251,11 @@ export async function registerRoutes(server: Server, app: Express) {
         }
       ];
       const avgRankByDeviceData = await features.aggregate(avgRankByDevicePipeline).toArray();
-      
+
       const avgRankByDevice: any = {};
       avgRankByDeviceData.forEach((item: any) => {
         const deviceType = item._id || "Unknown";
-        avgRankByDevice[deviceType] = item.clicks > 0 
+        avgRankByDevice[deviceType] = item.clicks > 0
           ? parseFloat((item.totalRank / item.clicks).toFixed(2))
           : 0;
       });
@@ -2186,7 +2281,7 @@ export async function registerRoutes(server: Server, app: Express) {
 
       // Build base match stage
       const baseMatch: any[] = [{ $match: filters }];
-      
+
       // Add date filter using created_at
       // Format: {"created_at": {"$gte": ISODate("2025-12-22T00:00:00Z"), "$lte": ISODate("2025-12-22T23:59:59.999Z")}}
       if (startDate || endDate) {
@@ -2205,11 +2300,13 @@ export async function registerRoutes(server: Server, app: Express) {
       }
 
       // Filter out null userLocation and ensure sessionId exists, and userId exists
-      baseMatch.push({ $match: { 
-        userLocation: { $ne: null, $exists: true },
-        sessionId: { $ne: null, $exists: true },
-        userId: { $ne: null }
-      } });
+      baseMatch.push({
+        $match: {
+          userLocation: { $ne: null, $exists: true },
+          sessionId: { $ne: null, $exists: true },
+          userId: { $ne: null }
+        }
+      });
 
       // Geography pipeline - group by state and city
       // Extract state from userLocation.regionName and city from userLocation.city
@@ -2219,7 +2316,9 @@ export async function registerRoutes(server: Server, app: Express) {
         {
           $addFields: {
             state: { $ifNull: ["$userLocation.regionName", "$userLocation.region", "Unknown"] },
-            city: { $ifNull: ["$userLocation.city", "Unknown"] }
+            city: { $ifNull: ["$userLocation.city", "Unknown"] },
+            lat: "$userLocation.lat",
+            lon: "$userLocation.lon"
           }
         },
         {
@@ -2229,7 +2328,9 @@ export async function registerRoutes(server: Server, app: Express) {
               city: "$city"
             },
             uniqueUsers: { $addToSet: "$userId" },
-            uploads: { $sum: 1 }
+            uploads: { $sum: 1 },
+            lat: { $first: "$lat" },
+            lon: { $first: "$lon" }
           }
         },
         {
@@ -2237,7 +2338,9 @@ export async function registerRoutes(server: Server, app: Express) {
             state: "$_id.state",
             city: "$_id.city",
             uniqueUsers: { $size: "$uniqueUsers" },
-            uploads: 1
+            uploads: 1,
+            lat: 1,
+            lon: 1
           }
         }
       ];
@@ -2286,14 +2389,14 @@ export async function registerRoutes(server: Server, app: Express) {
                   }
                 },
                 in: {
-              $cond: [
+                  $cond: [
                     { $ne: ["$$matchResult", null] },
                     { $toInt: { $arrayElemAt: ["$$matchResult.captures", 0] } },
                     1
-              ]
-            }
-          }
-        },
+                  ]
+                }
+              }
+            },
             state: { $ifNull: ["$userLocation.regionName", "$userLocation.region", "Unknown"] },
             city: { $ifNull: ["$userLocation.city", "Unknown"] }
           }
@@ -2341,7 +2444,9 @@ export async function registerRoutes(server: Server, app: Express) {
           uploads,
           clicks,
           clickRate: parseFloat(clickRate.toFixed(2)),
-          avgRank: parseFloat(avgRank.toFixed(2))
+          avgRank: parseFloat(avgRank.toFixed(2)),
+          lat: item.lat,
+          lon: item.lon
         };
       });
 
@@ -2426,7 +2531,7 @@ export async function registerRoutes(server: Server, app: Express) {
         clicks: stateClicksMap.get(item.state) || 0
       }));
 
-      res.json({ 
+      res.json({
         geoData: enrichedGeoData.sort((a: any, b: any) => b.uniqueUsers - a.uniqueUsers),
         stateData: enrichedStateData.sort((a: any, b: any) => b.uniqueUsers - a.uniqueUsers)
       });
@@ -2445,7 +2550,7 @@ export async function registerRoutes(server: Server, app: Express) {
 
       // Build base match stage
       const baseMatch: any[] = [{ $match: filters }];
-      
+
       // Add date filter using created_at
       // Format: {"created_at": {"$gte": ISODate("2025-12-22T00:00:00Z"), "$lte": ISODate("2025-12-22T23:59:59.999Z")}}
       if (startDate || endDate) {
@@ -2537,7 +2642,7 @@ export async function registerRoutes(server: Server, app: Express) {
                   }
                 },
                 in: {
-              $cond: [
+                  $cond: [
                     { $ne: ["$$matchResult", null] },
                     { $toInt: { $arrayElemAt: ["$$matchResult.captures", 0] } },
                     1
@@ -2621,7 +2726,7 @@ export async function registerRoutes(server: Server, app: Express) {
 
       // Combine all metrics
       const deviceMap = new Map<string, any>();
-      
+
       // Add basic metrics
       basicMetrics.forEach((item: any) => {
         const deviceType = item.device || "Unknown";
@@ -2844,7 +2949,7 @@ export async function registerRoutes(server: Server, app: Express) {
 
       // Build base match stage
       const baseMatch: any[] = [{ $match: filters }];
-      
+
       // Add date filter using created_at
       // Format: {"created_at": {"$gte": ISODate("2025-12-22T00:00:00Z"), "$lte": ISODate("2025-12-22T23:59:59.999Z")}}
       if (startDate || endDate) {
@@ -3203,7 +3308,7 @@ export async function registerRoutes(server: Server, app: Express) {
 
       // Build base match stage
       const baseMatch: any[] = [{ $match: filters }];
-      
+
       // Add date filter using created_at
       // Format: {"created_at": {"$gte": ISODate("2025-12-22T00:00:00Z"), "$lte": ISODate("2025-12-22T23:59:59.999Z")}}
       if (startDate || endDate) {
@@ -3603,7 +3708,7 @@ export async function registerRoutes(server: Server, app: Express) {
         byDevice: byDeviceData
           .filter((item: any) => item._id && item._id.toLowerCase() !== "unknown")
           .map((item: any) => ({
-          device: item._id,
+            device: item._id,
             shares: item.shares || 0,
             downloads: item.downloads || 0,
             total: (item.shares || 0) + (item.downloads || 0)
@@ -3626,7 +3731,7 @@ export async function registerRoutes(server: Server, app: Express) {
     } catch (error: any) {
       console.error("[SHARES-DOWNLOADS] Error:", error);
       console.error("[SHARES-DOWNLOADS] Error stack:", error?.stack);
-      res.status(500).json({ 
+      res.status(500).json({
         error: "Failed to fetch shares/downloads data",
         message: error?.message || "Unknown error"
       });
@@ -3639,7 +3744,7 @@ export async function registerRoutes(server: Server, app: Express) {
     try {
       const db = getDatabase();
       const features = db.collection(FEATURES_COLLECTION);
-      
+
       const limit = 50; // Fixed to 50 queries
       const maxTotal = 50; // Maximum 50 images total
 
@@ -3647,8 +3752,8 @@ export async function registerRoutes(server: Server, app: Express) {
       const pipeline = [
         {
           $match: {
-            userImage: { 
-              $exists: true, 
+            userImage: {
+              $exists: true,
               $ne: null,
               $nin: [null, ""]
             }
@@ -3696,14 +3801,14 @@ export async function registerRoutes(server: Server, app: Express) {
             sessionId: 1
           }
         }
-      ];      
+      ];
 
       // Get total count (up to maxTotal)
       const countPipeline = [
         {
           $match: {
-            userImage: { 
-              $exists: true, 
+            userImage: {
+              $exists: true,
               $ne: null,
               $nin: [null, ""]
             }
@@ -3720,7 +3825,7 @@ export async function registerRoutes(server: Server, app: Express) {
         {
           $count: "total"
         }
-      ];      
+      ];
 
       const rawData = await features.aggregate(pipeline).toArray();
 
@@ -3743,7 +3848,7 @@ export async function registerRoutes(server: Server, app: Express) {
       const validData: any[] = [];
       for (const item of rawData) {
         if (validData.length >= maxTotal) break;
-        
+
         // const isValid = await isValidImageUrl(item.userImage);
         const isValid = true;
         if (isValid) {
@@ -3771,7 +3876,7 @@ export async function registerRoutes(server: Server, app: Express) {
       });
     } catch (error: any) {
       console.error("[LATEST-QUERIES] Error:", error);
-      res.status(500).json({ 
+      res.status(500).json({
         error: "Failed to fetch latest queries",
         message: error?.message || "Unknown error"
       });
@@ -3902,7 +4007,7 @@ export async function registerRoutes(server: Server, app: Express) {
           username: DISPLAY_NAME,
         },
       };
-      
+
       res.json(response);
     } catch (error) {
       console.error("[LOGIN] Error:", error);
@@ -3921,6 +4026,63 @@ export async function registerRoutes(server: Server, app: Express) {
       res.status(401).json({ error: "Not authenticated" });
     }
   });
+
+  // GET /api/page-domains - Get all unique domains from pageDetail field
+  // Excludes roomup.in and returns a sorted, deduplicated domain list
+  // Uses Node.js URL parsing as the most reliable extraction method
+  app.get("/api/page-domains", withApiCache(async (req: Request, res: Response) => {
+    try {
+      const db = getDatabase();
+      const features = db.collection(FEATURES_COLLECTION);
+
+      // Fetch all distinct pageDetail values (raw URLs) from the collection
+      // Using distinct() is the most efficient way to get all unique values
+      const rawUrls: string[] = await features.distinct("pageDetail", {
+        sessionId: { $exists: true, $ne: null },
+        pageDetail: { $exists: true, $ne: null, $type: "string" }
+      });
+
+      // Extract hostnames in Node.js using the URL API — most reliable approach
+      const EXCLUDED_DOMAINS = ["roomup.in", "getrara.ai", "localhost", "services.getrara.ai"];
+      const domainSet = new Set<string>();
+
+      for (const rawUrl of rawUrls) {
+        if (!rawUrl || typeof rawUrl !== "string") continue;
+        try {
+          // Ensure the URL has a protocol so URL() can parse it
+          const urlStr = rawUrl.startsWith("http") ? rawUrl : `https://${rawUrl}`;
+          const parsed = new URL(urlStr);
+          // Remove any "www." prefix to normalize
+          let hostname = parsed.hostname.toLowerCase().replace(/^www\./, "");
+          if (!hostname) continue;
+          // Skip excluded domains
+          if (EXCLUDED_DOMAINS.some((ex) => hostname === ex || hostname.endsWith(`.${ex}`))) continue;
+          domainSet.add(hostname);
+        } catch {
+          // Fallback: try simple string split for malformed URLs
+          try {
+            const afterProtocol = rawUrl.split("://").slice(1).join("://");
+            if (!afterProtocol) continue;
+            let hostname = afterProtocol.split("/")[0].split("?")[0].split("#")[0].toLowerCase();
+            hostname = hostname.replace(/^www\./, "").replace(/:.*$/, ""); // strip port
+            if (!hostname) continue;
+            if (EXCLUDED_DOMAINS.some((ex) => hostname === ex || hostname.endsWith(`.${ex}`))) continue;
+            domainSet.add(hostname);
+          } catch {
+            // ignore unparseable URLs
+          }
+        }
+      }
+
+      const domains = Array.from(domainSet).sort();
+      console.log(`[PAGE-DOMAINS] Found ${domains.length} unique domains from ${rawUrls.length} raw URLs`);
+
+      res.json({ domains });
+    } catch (error) {
+      console.error("[PAGE-DOMAINS] Error:", error);
+      res.status(500).json({ error: "Failed to fetch page domains" });
+    }
+  }));
 
   return server;
 }

@@ -7,13 +7,13 @@ const getApiBase = () => {
   if (import.meta.env.VITE_API_URL) {
     return import.meta.env.VITE_API_URL.replace(/\/$/, ''); // Remove trailing slash
   }
-  
+
   // Otherwise, use the base path (for same-origin deployment)
   if (import.meta.env.PROD) {
     const basePath = import.meta.env.BASE_URL || '/EF-Dashboard/';
     return basePath.replace(/\/$/, ''); // Remove trailing slash
   }
-  
+
   return ''; // Development uses root (same origin)
 };
 
@@ -108,6 +108,15 @@ export async function fetchLatestQueries() {
     headers: getAuthHeaders(),
   });
   if (!response.ok) throw new Error('Failed to fetch latest queries');
+  return response.json();
+}
+
+export async function fetchPageDomains(): Promise<{ domains: string[] }> {
+  const response = await fetch(`${API_BASE}/api/page-domains`, {
+    headers: getAuthHeaders(),
+  });
+  console.log(response);
+  if (!response.ok) throw new Error('Failed to fetch page domains');
   return response.json();
 }
 

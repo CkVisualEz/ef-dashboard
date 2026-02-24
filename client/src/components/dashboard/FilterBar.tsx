@@ -12,12 +12,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
-import { Calendar as CalendarIcon, Download, Filter, X } from "lucide-react";
+import { Calendar as CalendarIcon, Download, Filter, Globe, X } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { format, subDays } from "date-fns";
 import { cn } from "@/lib/utils";
 import { DateRange } from "react-day-picker";
+import { useQuery } from "@tanstack/react-query";
+import { fetchPageDomains } from "@/lib/api";
 
 export interface FilterState {
   startDate?: string;
@@ -26,6 +27,7 @@ export interface FilterState {
   device?: string;
   state?: string;
   city?: string;
+  domain?: string;
 }
 
 interface FilterBarProps {
@@ -67,6 +69,17 @@ export function FilterBar({ onFilterChange, onExport, initialFilters, hideLocati
   const [device, setDevice] = useState<string>(initialFilters?.device || "all");
   const [state, setState] = useState<string>(initialFilters?.state || "");
   const [city, setCity] = useState<string>(initialFilters?.city || "");
+  const [domain, setDomain] = useState<string>(initialFilters?.domain || "all");
+
+  // Fetch available domains from API
+  const { data: domainsData } = useQuery({
+    queryKey: ["page-domains"],
+    queryFn: fetchPageDomains,
+    staleTime: 0, // Always fetch fresh — domain list changes as new sessions come in
+    gcTime: 2 * 60 * 1000, // Keep in GC for 2 minutes
+  });
+  console.log(domainsData);
+  const availableDomains = domainsData?.domains || [];
 
   // Use ref to store the latest onFilterChange to avoid infinite loops
   const onFilterChangeRef = useRef(onFilterChange);
@@ -144,19 +157,23 @@ export function FilterBar({ onFilterChange, onExport, initialFilters, hideLocati
           filters.city = city;
         }
       }
+      if (domain && domain !== "all") {
+        filters.domain = domain;
+      }
 
       if (!areFiltersEqual(lastEmittedFiltersRef.current, filters)) {
         lastEmittedFiltersRef.current = filters;
         onFilterChangeRef.current(filters);
       }
     }
-  }, [dateRange, classification, device, state, city, hideLocationFilters]);
+  }, [dateRange, classification, device, state, city, hideLocationFilters, domain]);
 
   const clearFilters = () => {
     setDateRange(undefined);
     setTempDateRange(undefined);
     setClassification("all");
     setDevice("all");
+    setDomain("all");
     if (!hideLocationFilters) {
       setState("");
       setCity("");
@@ -168,6 +185,7 @@ export function FilterBar({ onFilterChange, onExport, initialFilters, hideLocati
     dateRange?.to ||
     (classification && classification !== "all") ||
     (device && device !== "all") ||
+    (domain && domain !== "all") ||
     (!hideLocationFilters && (state || city));
 
   return (
@@ -246,6 +264,22 @@ export function FilterBar({ onFilterChange, onExport, initialFilters, hideLocati
           </Popover>
           <p className="text-[10px] text-muted-foreground mt-1">Double click on start date to select start date</p>
         </div>
+
+        {/* Domain / Page filter */}
+        <Select value={domain} onValueChange={setDomain}>
+          <SelectTrigger className="w-[200px]">
+            <Globe className="h-4 w-4 mr-1 shrink-0 text-muted-foreground" />
+            <SelectValue placeholder="All Domains" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Domains</SelectItem>
+            {availableDomains.map((d) => (
+              <SelectItem key={d} value={d}>
+                {d}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
         <Select value={classification} onValueChange={setClassification}>
           <SelectTrigger className="w-[180px]">

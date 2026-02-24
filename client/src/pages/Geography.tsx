@@ -15,74 +15,19 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useState } from "react";
 import { exportToCSV } from "@/lib/csvExport";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { USMap } from "@/components/geography/USMap";
+import { WorldPinMap } from "@/components/geography/WorldPinMap";
 import { getDefaultDateFilters } from "@/lib/defaultFilters";
 
 export default function Geography() {
   const [filters, setFilters] = useState<FilterState>(() => getDefaultDateFilters());
   const [mapMetric, setMapMetric] = useState<'Unique Users' | 'Uploads' | 'PDP Clicks'>('Unique Users');
-  
+
   const { data, isLoading } = useQuery({
     queryKey: ['geography', filters],
     queryFn: () => fetchGeography(filters),
   });
 
   const geoData = data?.geoData || [];
-  const stateData = data?.stateData || [];
-
-  // List of all US states (common states) - can be extended for other countries
-  const commonStates = [
-    'Alabama', 'Alaska', 'Arizona', 'Arkansas', 'California', 'Colorado', 'Connecticut',
-    'Delaware', 'Florida', 'Georgia', 'Hawaii', 'Idaho', 'Illinois', 'Indiana', 'Iowa',
-    'Kansas', 'Kentucky', 'Louisiana', 'Maine', 'Maryland', 'Massachusetts', 'Michigan',
-    'Minnesota', 'Mississippi', 'Missouri', 'Montana', 'Nebraska', 'Nevada', 'New Hampshire',
-    'New Jersey', 'New Mexico', 'New York', 'North Carolina', 'North Dakota', 'Ohio',
-    'Oklahoma', 'Oregon', 'Pennsylvania', 'Rhode Island', 'South Carolina', 'South Dakota',
-    'Tennessee', 'Texas', 'Utah', 'Vermont', 'Virginia', 'Washington', 'West Virginia',
-    'Wisconsin', 'Wyoming', 'District of Columbia'
-  ];
-
-  // Create a map of state data
-  const stateDataMap = new Map<string, any>();
-  stateData.forEach((item: any) => {
-    if (item.state && item.state !== 'Unknown') {
-      stateDataMap.set(item.state, {
-        'Unique Users': item.uniqueUsers || 0,
-        'Uploads': item.uploads || 0,
-        'PDP Clicks': item.clicks || 0
-      });
-    }
-  });
-
-  // Get all unique states from data
-  const statesFromData = Array.from(new Set(stateData.map((item: any) => item.state).filter((s: any) => s && s !== 'Unknown')));
-  
-  // Combine common states with states from data
-  const allStatesSet = new Set([...commonStates, ...statesFromData]);
-  const allStates = Array.from(allStatesSet).sort();
-
-  // Prepare heatmap data (by state) - show all metrics, including states with 0 values
-  const heatmapData = allStates
-    .map((state: string) => {
-      const data = stateDataMap.get(state);
-      return {
-        state,
-        'Unique Users': data?.['Unique Users'] || 0,
-        'Uploads': data?.['Uploads'] || 0,
-        'PDP Clicks': data?.['PDP Clicks'] || 0
-      };
-    })
-    .sort((a: any, b: any) => {
-      // Sort by total of all metrics (states with data first, then alphabetically)
-      const totalA = a['Unique Users'] + a['Uploads'] + a['PDP Clicks'];
-      const totalB = b['Unique Users'] + b['Uploads'] + b['PDP Clicks'];
-      if (totalA === 0 && totalB === 0) {
-        return a.state.localeCompare(b.state);
-      }
-      if (totalA === 0) return 1;
-      if (totalB === 0) return -1;
-      return totalB - totalA;
-    });
 
   // Top Locations Table (by state/city)
   const topLocations = geoData
@@ -93,10 +38,12 @@ export default function Geography() {
       uploads: item.uploads || 0,
       clicks: item.clicks || 0,
       clickRate: item.clickRate || 0,
-      avgRank: item.avgRank || 0
+      avgRank: item.avgRank || 0,
+      lat: item.lat,
+      lon: item.lon,
     }))
-    .sort((a, b) => b.uniqueUsers - a.uniqueUsers)
-    .slice(0, 50); // Top 50 locations
+    .sort((a: any, b: any) => b.uniqueUsers - a.uniqueUsers)
+    .slice(0, 50);
 
   const handleExport = () => {
     const exportData = topLocations.map((location: any) => ({
@@ -106,7 +53,7 @@ export default function Geography() {
       'Uploads': location.uploads,
       'PDP Clicks': location.clicks,
       'Click Rate per Upload (%)': location.clickRate,
-      'Average Clicked Rank': location.avgRank
+      'Average Clicked Rank': location.avgRank,
     }));
     exportToCSV(exportData, 'geography');
   };
@@ -116,12 +63,10 @@ export default function Geography() {
       <DashboardLayout>
         <div className="mb-6">
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">Geography</h1>
-          <p className="text-muted-foreground mt-1">
-            User location and regional performance.
-          </p>
+          <p className="text-muted-foreground mt-1">User location and regional performance.</p>
         </div>
         <Skeleton className="h-32 w-full mb-8" />
-        <Skeleton className="h-[400px] w-full" />
+        <Skeleton className="h-[500px] w-full" />
       </DashboardLayout>
     );
   }
@@ -137,14 +82,15 @@ export default function Geography() {
 
       <FilterBar onFilterChange={setFilters} onExport={handleExport} initialFilters={filters} />
 
-      {/* A. State/City Heatmap */}
+      {/* Map Section */}
       <div className="mb-8">
-        <ChartWrapper 
-          title="State/City Heatmap" 
-          description="Map showing geographic distribution by state"
-          headerRight={
+        <ChartWrapper
+          title="Global User Activity"
+          description="Click any highlighted country to drill into its city-level data"
+        >
+          <div className="flex items-center justify-end px-2 pb-2">
             <Select value={mapMetric} onValueChange={(value: any) => setMapMetric(value)}>
-              <SelectTrigger className="w-[180px]">
+              <SelectTrigger className="w-[180px] bg-background">
                 <SelectValue placeholder="Select metric" />
               </SelectTrigger>
               <SelectContent>
@@ -153,24 +99,22 @@ export default function Geography() {
                 <SelectItem value="PDP Clicks">PDP Clicks</SelectItem>
               </SelectContent>
             </Select>
-          }
-        >
-          <div className="h-[600px] w-full">
-            {heatmapData.length > 0 ? (
-              <USMap data={heatmapData} metric={mapMetric} />
-            ) : (
-              <div className="h-full flex items-center justify-center text-muted-foreground">
-                No geographic data available
-              </div>
-            )}
           </div>
+
+          {geoData && geoData.length > 0 ? (
+            <WorldPinMap data={topLocations} metric={mapMetric} />
+          ) : (
+            <div className="h-[400px] flex items-center justify-center text-muted-foreground">
+              No geographic data available
+            </div>
+          )}
         </ChartWrapper>
       </div>
 
-      {/* B. Top Locations Table */}
+      {/* Top Locations Table */}
       <div className="mb-8">
-        <ChartWrapper 
-          title="Top Locations" 
+        <ChartWrapper
+          title="Top Locations"
           description="State/City performance metrics"
         >
           {topLocations.length > 0 ? (
@@ -188,7 +132,7 @@ export default function Geography() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {topLocations.map((location, idx) => (
+                  {topLocations.map((location: any, idx: number) => (
                     <TableRow key={idx}>
                       <TableCell className="font-medium">{location.state}</TableCell>
                       <TableCell>{location.city}</TableCell>
