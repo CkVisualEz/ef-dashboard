@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState } from 'react';
 import { ComposableMap, Geographies, Geography } from 'react-simple-maps';
 
 
@@ -268,8 +268,8 @@ export function WorldPinMap({ data, metric }: WorldMapProps) {
 }
 
 // ─── REGION CHOROPLETH (works for ALL countries) ──────────────────────────────
-// Fetches TopoJSON via same-origin server proxy (/api/mapdata/:iso2)
-// This avoids ALL CORS issues — the server fetches from Highcharts CDN for us
+// Uses URL strings for Geographies — react-simple-maps handles fetching internally.
+// US map: jsdelivr CDN (TopoJSON), Other countries: /api/mapdata/:iso2 (server-proxied GeoJSON)
 function RegionChoropleth({ iso, data, metric, tooltip, setTooltip }: {
     iso: string;
     data: LocationData[];
@@ -277,38 +277,14 @@ function RegionChoropleth({ iso, data, metric, tooltip, setTooltip }: {
     tooltip: any;
     setTooltip: any;
 }) {
-    const [geoData, setGeoData] = useState<any>(null);
-    const [loading, setLoading] = useState(true);
-
     const config = iso === '840'
         ? { iso2: 'us', nameKey: 'name', projection: 'geoAlbersUsa' as const, projScale: undefined, projCenter: undefined }
         : COUNTRY_SUBNATIONAL[iso]
         || null;
 
-    useEffect(() => {
-        setLoading(true);
-        setGeoData(null);
-        if (!config) { console.log('[MAP] No config for ISO:', iso); setLoading(false); return; }
-        // US uses jsdelivr CDN directly (TopoJSON, react-simple-maps handles it)
-        // All other countries: server proxy returns pre-converted GeoJSON
-        const url = iso === '840' ? US_GEO_URL : `/api/mapdata/${config.iso2}`;
-        console.log('[MAP] Fetching:', url, 'for ISO:', iso);
-        fetch(url, { cache: 'no-store' })
-            .then(r => {
-                console.log('[MAP] Response status:', r.status, 'for', url);
-                if (!r.ok) throw new Error(`fetch failed: ${r.status}`);
-                return r.json();
-            })
-            .then(geo => {
-                console.log('[MAP] Received geo data, type:', geo?.type, 'features:', geo?.features?.length);
-                setGeoData(geo);
-                setLoading(false);
-            })
-            .catch(err => {
-                console.error('[MAP] Load error for', url, ':', err);
-                setLoading(false);
-            });
-    }, [iso]);
+    // Build the URL string — react-simple-maps will fetch & parse it internally
+    // US: jsdelivr CDN (TopoJSON) | Others: our server proxy (returns GeoJSON)
+    const geoUrl = iso === '840' ? US_GEO_URL : config ? `/api/mapdata/${config.iso2}` : null;
 
     // Get metric value helper
     const getVal = (loc: LocationData) =>
@@ -370,17 +346,7 @@ function RegionChoropleth({ iso, data, metric, tooltip, setTooltip }: {
         return null;
     };
 
-    if (loading) {
-        return (
-            <div className="w-full" style={{ height: '480px' }} data-map-container>
-                <div className="w-full h-full flex items-center justify-center text-muted-foreground text-sm">
-                    Loading map...
-                </div>
-            </div>
-        );
-    }
-
-    if (!config || !geoData) {
+    if (!config || !geoUrl) {
         // Fallback: simple card grid for countries without boundary data
         const cities = data.filter(loc => guessISO(loc.state, loc.city) === iso)
             .sort((a, b) => getVal(b) - getVal(a));
@@ -421,7 +387,7 @@ function RegionChoropleth({ iso, data, metric, tooltip, setTooltip }: {
         <div className="w-full" style={{ height: '480px', position: 'relative' }} data-map-container>
             {tooltip.visible && <TooltipBox x={tooltip.x} y={tooltip.y}>{tooltip.content}</TooltipBox>}
             <ComposableMap {...projProps} className="w-full h-full">
-                <Geographies geography={geoData}>
+                <Geographies geography={geoUrl}>
                     {({ geographies }) =>
                         geographies.map(geo => {
                             // Try all possible name property keys

@@ -69,7 +69,7 @@ export function FilterBar({ onFilterChange, onExport, initialFilters, hideLocati
   const [device, setDevice] = useState<string>(initialFilters?.device || "all");
   const [state, setState] = useState<string>(initialFilters?.state || "");
   const [city, setCity] = useState<string>(initialFilters?.city || "");
-  const [domain, setDomain] = useState<string>(initialFilters?.domain || "all");
+  const [domain, setDomain] = useState<string>(initialFilters?.domain || "engineeredfloors.com");
 
   // Fetch available domains from API
   const { data: domainsData } = useQuery({
