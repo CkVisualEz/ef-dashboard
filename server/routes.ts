@@ -326,8 +326,35 @@ export async function registerRoutes(server: Server, app: Express) {
         return res.status(500).json({ error: "Invalid map data structure" });
       }
 
-      const geojson = topojsonClient.feature(topo, topo.objects[objectKey] as any);
-      console.log(`[MAPDATA] Converted ${iso2}: ${(geojson as any).features?.length || 0} features`);
+      let geojson: any;
+
+      // OVERRIDE FOR MAPS THAT CRASH D3 GEO PROJECTIONS (e.g., India Highcharts Map)
+      // Highcharts India map occasionally throws a projection error natively in d3 geoMercator.
+      if (iso2 === 'in') {
+        try {
+          // Use a reliable, heavily-tested GeoJSON for Indian Sub-states
+          const resp = await fetch('https://raw.githubusercontent.com/Subhash9325/GeoJson-Data-of-Indian-States/master/Indian_States');
+          if (resp.ok) {
+            geojson = await resp.json();
+            // Map the property names required by WorldPinMap visualization
+            if (geojson?.features) {
+              geojson.features.forEach((f: any) => {
+                if (f.properties && f.properties.NAME_1) {
+                  f.properties.name = f.properties.NAME_1;
+                }
+              });
+            }
+            console.log(`[MAPDATA] Used special override GeoJSON for India: ${geojson.features?.length || 0} features`);
+          }
+        } catch (e) {
+          console.error("[MAPDATA] Failed to fetch override GeoJSON for India:", e);
+        }
+      }
+
+      if (!geojson) {
+        geojson = topojsonClient.feature(topo, topo.objects[objectKey] as any);
+        console.log(`[MAPDATA] Converted ${iso2}: ${(geojson as any).features?.length || 0} features`);
+      }
 
       // Cache the GeoJSON server-side
       mapDataCache.set(iso2, { data: geojson, expiresAt: Date.now() + MAP_CACHE_TTL });

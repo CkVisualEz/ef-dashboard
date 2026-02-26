@@ -15,12 +15,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useState } from "react";
 import { exportToCSV } from "@/lib/csvExport";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { WorldPinMap } from "@/components/geography/WorldPinMap";
+import { WorldPinMap, guessISO } from "@/components/geography/WorldPinMap";
 import { getDefaultDateFilters } from "@/lib/defaultFilters";
 
 export default function Geography() {
   const [filters, setFilters] = useState<FilterState>(() => getDefaultDateFilters());
   const [mapMetric, setMapMetric] = useState<'Unique Users' | 'Uploads' | 'PDP Clicks'>('Unique Users');
+  const [selectedCountryISO, setSelectedCountryISO] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['geography', filters],
@@ -42,6 +43,10 @@ export default function Geography() {
       lat: item.lat,
       lon: item.lon,
     }))
+    .filter((loc: any) => {
+      if (!selectedCountryISO) return true; // show all if no country selected
+      return guessISO(loc.state, loc.city) === selectedCountryISO;
+    })
     .sort((a: any, b: any) => b.uniqueUsers - a.uniqueUsers)
     .slice(0, 50);
 
@@ -102,7 +107,7 @@ export default function Geography() {
           </div>
 
           {geoData && geoData.length > 0 ? (
-            <WorldPinMap data={topLocations} metric={mapMetric} />
+            <WorldPinMap data={geoData} metric={mapMetric} onCountrySelect={setSelectedCountryISO} />
           ) : (
             <div className="h-[400px] flex items-center justify-center text-muted-foreground">
               No geographic data available
@@ -114,7 +119,7 @@ export default function Geography() {
       {/* Top Locations Table */}
       <div className="mb-8">
         <ChartWrapper
-          title="Top Locations"
+          title={selectedCountryISO ? "Top Locations in Selected Region" : "Top Locations Worldwide"}
           description="State/City performance metrics"
         >
           {topLocations.length > 0 ? (
@@ -139,8 +144,8 @@ export default function Geography() {
                       <TableCell className="text-right">{location.uniqueUsers.toLocaleString()}</TableCell>
                       <TableCell className="text-right">{location.uploads.toLocaleString()}</TableCell>
                       <TableCell className="text-right">{location.clicks.toLocaleString()}</TableCell>
-                      <TableCell className="text-right">{location.clickRate.toFixed(2)}%</TableCell>
-                      <TableCell className="text-right">{location.avgRank.toFixed(2)}</TableCell>
+                      <TableCell className="text-right">{Number(location.clickRate || 0).toFixed(2)}%</TableCell>
+                      <TableCell className="text-right">{Number(location.avgRank || 0).toFixed(2)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -148,7 +153,7 @@ export default function Geography() {
             </div>
           ) : (
             <div className="h-[400px] flex items-center justify-center text-muted-foreground">
-              No location data available
+              No location data available for this selection
             </div>
           )}
         </ChartWrapper>
