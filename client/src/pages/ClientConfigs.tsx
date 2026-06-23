@@ -61,16 +61,58 @@ type ServicesConfig = {
   generateRecommendationApiUrl?: string;
 };
 
-const DEFAULT_SEARCH_ICON = "search icon.png";
-
 type ClientConfigContent = {
   branding?: BrandingConfig;
   theme?: Record<string, unknown>;
   product?: Record<string, unknown>;
   services?: ServicesConfig;
   filters_disabled?: boolean;
-  search_icon?: string;
 };
+
+const brandingFields: {
+  key: keyof BrandingConfig;
+  id: string;
+  label: string;
+  placeholder: string;
+}[] = [
+  { key: "clientName", id: "brandingClientName", label: "Client name", placeholder: "Engineered Floors" },
+  { key: "bubbleText", id: "brandingBubbleText", label: "Bubble text", placeholder: "Find your perfect match" },
+  { key: "headerLogoUrl", id: "brandingHeaderLogoUrl", label: "Header logo URL", placeholder: "https://example.com/logo.png" },
+  { key: "headerLogoAlt", id: "brandingHeaderLogoAlt", label: "Header logo alt text", placeholder: "Company logo" },
+  { key: "sidebarTitle", id: "brandingSidebarTitle", label: "Sidebar title", placeholder: "Color Match" },
+  { key: "fabIconUrl", id: "brandingFabIconUrl", label: "FAB icon URL", placeholder: "search icon.png" },
+  { key: "fabThumbIconUrl", id: "brandingFabThumbIconUrl", label: "FAB thumb icon URL", placeholder: "search icon.png" },
+  { key: "poweredByLogoUrl", id: "brandingPoweredByLogoUrl", label: "Powered by logo URL", placeholder: "https://example.com/powered-by.png" },
+  { key: "poweredByLogoAlt", id: "brandingPoweredByLogoAlt", label: "Powered by logo alt text", placeholder: "Powered by EF" },
+  { key: "poweredByLink", id: "brandingPoweredByLink", label: "Powered by link", placeholder: "https://example.com" },
+  {
+    key: "recommendationEmailSubject",
+    id: "brandingRecommendationEmailSubject",
+    label: "Recommendation email subject",
+    placeholder: "Your color match recommendations",
+  },
+  { key: "productPageBaseUrl", id: "brandingProductPageBaseUrl", label: "Product page base URL", placeholder: "https://example.com/products" },
+];
+
+const serviceFields: {
+  key: keyof ServicesConfig;
+  id: string;
+  label: string;
+  placeholder: string;
+}[] = [
+  {
+    key: "sendRecommendationEmailApiUrl",
+    id: "sendRecommendationEmailApiUrl",
+    label: "Send recommendation email API URL",
+    placeholder: "https://api.example.com/send-email",
+  },
+  {
+    key: "generateRecommendationApiUrl",
+    id: "generateRecommendationApiUrl",
+    label: "Generate recommendation API URL",
+    placeholder: "https://api.example.com/generate",
+  },
+];
 
 export default function ClientConfigs() {
   const queryClient = useQueryClient();
@@ -90,7 +132,6 @@ export default function ClientConfigs() {
   const [productText, setProductText] = useState("{}");
   const [services, setServices] = useState<ServicesConfig>({});
   const [filtersDisabled, setFiltersDisabled] = useState(false);
-  const [searchIcon, setSearchIcon] = useState(DEFAULT_SEARCH_ICON);
   const [error, setError] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
@@ -130,7 +171,6 @@ export default function ClientConfigs() {
     setProductText(JSON.stringify(config.product || {}, null, 2));
     setServices((config.services || {}) as ServicesConfig);
     setFiltersDisabled(!!config.filters_disabled);
-    setSearchIcon(config.search_icon || DEFAULT_SEARCH_ICON);
     setError(null);
     setIsModalOpen(true);
   };
@@ -168,7 +208,6 @@ export default function ClientConfigs() {
     setProductText(JSON.stringify(config.product || {}, null, 2));
     setServices((config.services || {}) as ServicesConfig);
     setFiltersDisabled(!!config.filters_disabled);
-    setSearchIcon(config.search_icon || DEFAULT_SEARCH_ICON);
     setError(null);
     setIsModalOpen(true);
   };
@@ -226,7 +265,6 @@ export default function ClientConfigs() {
             product: parsedProduct || {},
             services: services || {},
             filters_disabled: filtersDisabled,
-            search_icon: searchIcon.trim() || DEFAULT_SEARCH_ICON,
           },
         };
 
@@ -305,81 +343,21 @@ export default function ClientConfigs() {
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="searchIcon">Search icon</Label>
-        <Input
-          id="searchIcon"
-          value={searchIcon}
-          onChange={(event) => setSearchIcon(event.target.value)}
-          placeholder={DEFAULT_SEARCH_ICON}
-        />
-      </div>
-
-      <div className="space-y-2">
-        <Label htmlFor="brandingClientName">Branding</Label>
+        <Label>Branding</Label>
         <div className="grid gap-3">
-          <Input
-            id="brandingClientName"
-            value={branding.clientName || ""}
-            onChange={(event) => setBranding({ ...branding, clientName: event.target.value })}
-            placeholder="Client name"
-          />
-          <Input
-            value={branding.bubbleText || ""}
-            onChange={(event) => setBranding({ ...branding, bubbleText: event.target.value })}
-            placeholder="Bubble text"
-          />
-          <Input
-            value={branding.headerLogoUrl || ""}
-            onChange={(event) => setBranding({ ...branding, headerLogoUrl: event.target.value })}
-            placeholder="Header logo URL"
-          />
-          <Input
-            value={branding.headerLogoAlt || ""}
-            onChange={(event) => setBranding({ ...branding, headerLogoAlt: event.target.value })}
-            placeholder="Header logo alt text"
-          />
-          <Input
-            value={branding.sidebarTitle || ""}
-            onChange={(event) => setBranding({ ...branding, sidebarTitle: event.target.value })}
-            placeholder="Sidebar title"
-          />
-          <Input
-            value={branding.fabIconUrl || ""}
-            onChange={(event) => setBranding({ ...branding, fabIconUrl: event.target.value })}
-            placeholder="FAB icon URL"
-          />
-          <Input
-            value={branding.fabThumbIconUrl || ""}
-            onChange={(event) => setBranding({ ...branding, fabThumbIconUrl: event.target.value })}
-            placeholder="FAB thumb icon URL"
-          />
-          <Input
-            value={branding.poweredByLogoUrl || ""}
-            onChange={(event) => setBranding({ ...branding, poweredByLogoUrl: event.target.value })}
-            placeholder="Powered by logo URL"
-          />
-          <Input
-            value={branding.poweredByLogoAlt || ""}
-            onChange={(event) => setBranding({ ...branding, poweredByLogoAlt: event.target.value })}
-            placeholder="Powered by logo alt text"
-          />
-          <Input
-            value={branding.poweredByLink || ""}
-            onChange={(event) => setBranding({ ...branding, poweredByLink: event.target.value })}
-            placeholder="Powered by link"
-          />
-          <Input
-            value={branding.recommendationEmailSubject || ""}
-            onChange={(event) =>
-              setBranding({ ...branding, recommendationEmailSubject: event.target.value })
-            }
-            placeholder="Recommendation email subject"
-          />
-          <Input
-            value={branding.productPageBaseUrl || ""}
-            onChange={(event) => setBranding({ ...branding, productPageBaseUrl: event.target.value })}
-            placeholder="Product page base URL"
-          />
+          {brandingFields.map((field) => (
+            <div key={field.key} className="space-y-2">
+              <Label htmlFor={field.id} className="text-xs text-muted-foreground">
+                {field.label}
+              </Label>
+              <Input
+                id={field.id}
+                value={branding[field.key] || ""}
+                onChange={(event) => setBranding({ ...branding, [field.key]: event.target.value })}
+                placeholder={field.placeholder}
+              />
+            </div>
+          ))}
         </div>
       </div>
 
@@ -415,23 +393,21 @@ export default function ClientConfigs() {
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="services">Services</Label>
+        <Label>Services</Label>
         <div className="grid gap-3">
-          <Input
-            id="services"
-            value={services.sendRecommendationEmailApiUrl || ""}
-            onChange={(event) =>
-              setServices({ ...services, sendRecommendationEmailApiUrl: event.target.value })
-            }
-            placeholder="Send recommendation email API URL"
-          />
-          <Input
-            value={services.generateRecommendationApiUrl || ""}
-            onChange={(event) =>
-              setServices({ ...services, generateRecommendationApiUrl: event.target.value })
-            }
-            placeholder="Generate recommendation API URL"
-          />
+          {serviceFields.map((field) => (
+            <div key={field.key} className="space-y-2">
+              <Label htmlFor={field.id} className="text-xs text-muted-foreground">
+                {field.label}
+              </Label>
+              <Input
+                id={field.id}
+                value={services[field.key] || ""}
+                onChange={(event) => setServices({ ...services, [field.key]: event.target.value })}
+                placeholder={field.placeholder}
+              />
+            </div>
+          ))}
         </div>
       </div>
 
