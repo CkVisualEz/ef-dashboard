@@ -61,6 +61,17 @@ type ServicesConfig = {
   generateRecommendationApiUrl?: string;
 };
 
+const DEFAULT_SEARCH_ICON = "search icon.png";
+
+type ClientConfigContent = {
+  branding?: BrandingConfig;
+  theme?: Record<string, unknown>;
+  product?: Record<string, unknown>;
+  services?: ServicesConfig;
+  filters_disabled?: boolean;
+  search_icon?: string;
+};
+
 export default function ClientConfigs() {
   const queryClient = useQueryClient();
   const { data, isLoading, error: queryError } = useQuery({
@@ -78,18 +89,15 @@ export default function ClientConfigs() {
   const [theme, setTheme] = useState<ThemeConfig>({});
   const [productText, setProductText] = useState("{}");
   const [services, setServices] = useState<ServicesConfig>({});
+  const [filtersDisabled, setFiltersDisabled] = useState(false);
+  const [searchIcon, setSearchIcon] = useState(DEFAULT_SEARCH_ICON);
   const [error, setError] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   const isEditing = !!editingId;
 
   const handleLoad = (doc: ClientConfigDoc) => {
-    const config = (doc.client_config || {}) as {
-      branding?: BrandingConfig;
-      theme?: Record<string, unknown>;
-      product?: Record<string, unknown>;
-      services?: ServicesConfig;
-    };
+    const config = (doc.client_config || {}) as ClientConfigContent;
 
     setEditingId(doc._id);
     setClientId(doc.client_id || "");
@@ -121,17 +129,14 @@ export default function ClientConfigs() {
     });
     setProductText(JSON.stringify(config.product || {}, null, 2));
     setServices((config.services || {}) as ServicesConfig);
+    setFiltersDisabled(!!config.filters_disabled);
+    setSearchIcon(config.search_icon || DEFAULT_SEARCH_ICON);
     setError(null);
     setIsModalOpen(true);
   };
 
   const handleCopy = (doc: ClientConfigDoc) => {
-    const config = (doc.client_config || {}) as {
-      branding?: BrandingConfig;
-      theme?: Record<string, unknown>;
-      product?: Record<string, unknown>;
-      services?: ServicesConfig;
-    };
+    const config = (doc.client_config || {}) as ClientConfigContent;
     const themeConfig = (config.theme || {}) as Record<string, unknown>;
     setEditingId(null);
     setClientId(doc.client_id ? `${doc.client_id}-copy` : "");
@@ -162,6 +167,8 @@ export default function ClientConfigs() {
     });
     setProductText(JSON.stringify(config.product || {}, null, 2));
     setServices((config.services || {}) as ServicesConfig);
+    setFiltersDisabled(!!config.filters_disabled);
+    setSearchIcon(config.search_icon || DEFAULT_SEARCH_ICON);
     setError(null);
     setIsModalOpen(true);
   };
@@ -218,6 +225,8 @@ export default function ClientConfigs() {
             theme: theme || {},
             product: parsedProduct || {},
             services: services || {},
+            filters_disabled: filtersDisabled,
+            search_icon: searchIcon.trim() || DEFAULT_SEARCH_ICON,
           },
         };
 
@@ -279,6 +288,30 @@ export default function ClientConfigs() {
           />
           <span className="text-sm text-muted-foreground">Only one client can be default</span>
         </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="filtersDisabled">Filters disabled</Label>
+        <div>
+          <input
+            id="filtersDisabled"
+            type="checkbox"
+            className="mr-2"
+            checked={filtersDisabled}
+            onChange={(event) => setFiltersDisabled(event.target.checked)}
+          />
+          <span className="text-sm text-muted-foreground">Hide product filters in the widget (default: off)</span>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="searchIcon">Search icon</Label>
+        <Input
+          id="searchIcon"
+          value={searchIcon}
+          onChange={(event) => setSearchIcon(event.target.value)}
+          placeholder={DEFAULT_SEARCH_ICON}
+        />
       </div>
 
       <div className="space-y-2">
