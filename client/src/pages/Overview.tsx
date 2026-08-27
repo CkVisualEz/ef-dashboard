@@ -5,13 +5,13 @@ import { ChartWrapper } from "@/components/dashboard/ChartWrapper";
 import { fetchOverview } from "@/lib/api";
 import { useQuery } from "@tanstack/react-query";
 import { 
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend
 } from 'recharts';
 import { Skeleton } from "@/components/ui/skeleton";
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { FilterState } from "@/components/dashboard/FilterBar";
-import { format, subDays } from "date-fns";
+import { format, subDays, parseISO } from "date-fns";
 
 export default function Overview() {
   // Initialize with last 30 days as default
@@ -35,6 +35,19 @@ export default function Overview() {
     queryKey: ['overview', filters],
     queryFn: () => fetchOverview(filters as Record<string, string>),
   });
+
+  const trendChartData = useMemo(() => {
+    const activityTrend = data?.activityTrend || [];
+    return activityTrend.map((item: { date: string; activeUsers: number; uploads: number; clicks: number }) => ({
+      ...item,
+      label: format(parseISO(item.date), "MMM d"),
+    }));
+  }, [data?.activityTrend]);
+
+  const hasTrendData = trendChartData.some(
+    (item: { activeUsers: number; uploads: number; clicks: number }) =>
+      item.activeUsers > 0 || item.uploads > 0 || item.clicks > 0
+  );
 
   if (isLoading) {
     return (
@@ -95,6 +108,80 @@ export default function Overview() {
             hideComparison={true}
           />
         ))}
+      </div>
+
+      <div className="grid gap-6 mb-8">
+        <ChartWrapper
+          title="Activity Trend"
+          description="Daily active users, image uploads, and product clicks for the selected filters"
+        >
+          <div className="h-[300px] sm:h-[400px] w-full">
+            {hasTrendData ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={trendChartData}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                  <XAxis
+                    dataKey="label"
+                    stroke="hsl(var(--muted-foreground))"
+                    fontSize={12}
+                    tickLine={false}
+                    axisLine={false}
+                    minTickGap={24}
+                  />
+                  <YAxis
+                    stroke="hsl(var(--muted-foreground))"
+                    fontSize={12}
+                    tickLine={false}
+                    axisLine={false}
+                    allowDecimals={false}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "hsl(var(--popover))",
+                      borderColor: "hsl(var(--border))",
+                      borderRadius: "var(--radius)",
+                    }}
+                    itemStyle={{ color: "hsl(var(--popover-foreground))" }}
+                    labelFormatter={(_, payload) => {
+                      const date = payload?.[0]?.payload?.date;
+                      return date ? format(parseISO(date), "MMM d, yyyy") : "";
+                    }}
+                    formatter={(value: number) => value.toLocaleString()}
+                  />
+                  <Legend />
+                  <Line
+                    type="monotone"
+                    dataKey="activeUsers"
+                    stroke="var(--color-chart-1)"
+                    strokeWidth={2}
+                    name="Active Users"
+                    dot={{ r: 3 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="uploads"
+                    stroke="var(--color-chart-2)"
+                    strokeWidth={2}
+                    name="Image Uploads"
+                    dot={{ r: 3 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="clicks"
+                    stroke="var(--color-chart-3)"
+                    strokeWidth={2}
+                    name="Product Clicks"
+                    dot={{ r: 3 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center text-muted-foreground">
+                No trend data available for the selected filters
+              </div>
+            )}
+          </div>
+        </ChartWrapper>
       </div>
 
       <div className="grid gap-6 mb-8">

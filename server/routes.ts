@@ -288,6 +288,39 @@ export async function registerRoutes(server: Server, app: Express) {
     }
   });
 
+  const buildDailyDateRange = (start: Date, end: Date): string[] => {
+    const dates: string[] = [];
+    const current = new Date(start);
+    current.setUTCHours(0, 0, 0, 0);
+    const endDay = new Date(end);
+    endDay.setUTCHours(0, 0, 0, 0);
+
+    while (current <= endDay) {
+      dates.push(current.toISOString().slice(0, 10));
+      current.setUTCDate(current.getUTCDate() + 1);
+    }
+
+    return dates;
+  };
+
+  const mergeActivityTrend = (
+    dates: string[],
+    uploadsByDate: Array<{ _id: string; uploads: number }>,
+    activeUsersByDate: Array<{ _id: string; activeUsers: number }>,
+    clicksByDate: Array<{ _id: string; clicks: number }>
+  ) => {
+    const uploadsMap = new Map(uploadsByDate.map((item) => [item._id, item.uploads]));
+    const activeUsersMap = new Map(activeUsersByDate.map((item) => [item._id, item.activeUsers]));
+    const clicksMap = new Map(clicksByDate.map((item) => [item._id, item.clicks]));
+
+    return dates.map((date) => ({
+      date,
+      activeUsers: activeUsersMap.get(date) || 0,
+      uploads: uploadsMap.get(date) || 0,
+      clicks: clicksMap.get(date) || 0,
+    }));
+  };
+
   // ─── MAP DATA PROXY ──────────────────────────────────────────────────────────
   // Fetches TopoJSON from Highcharts CDN, converts to GeoJSON server-side,
   // and returns ready-to-render GeoJSON FeatureCollection to the browser.
@@ -640,6 +673,88 @@ export async function registerRoutes(server: Server, app: Express) {
         { $sort: { "_id.date": 1 } }
       ];
 
+      const dailyUploadsPipeline = [
+        ...baseMatch,
+        ...getDeviceFilterStages(device),
+        {
+          $match: {
+            userId: { $ne: null }
+          }
+        },
+        {
+          $group: {
+            _id: { $dateToString: { format: "%Y-%m-%d", date: { $toDate: "$_id" } } },
+            uploads: { $sum: 1 }
+          }
+        },
+        { $sort: { _id: 1 } }
+      ];
+
+      const dailyActiveUsersPipeline = [
+        ...baseMatch,
+        ...getDeviceFilterStages(device),
+        {
+          $match: {
+            userId: { $ne: null }
+          }
+        },
+        {
+          $group: {
+            _id: {
+              date: { $dateToString: { format: "%Y-%m-%d", date: { $toDate: "$_id" } } },
+              userId: "$userId"
+            }
+          }
+        },
+        {
+          $group: {
+            _id: "$_id.date",
+            activeUsers: { $sum: 1 }
+          }
+        },
+        { $sort: { _id: 1 } }
+      ];
+
+      const dailyClicksPipeline = [
+        ...baseMatch,
+        ...getDeviceFilterStages(device),
+        {
+          $match: {
+            userId: { $ne: null },
+            user_actions: {
+              $exists: true,
+              $type: "array",
+              $ne: []
+            }
+          }
+        },
+        getUnwindUserActionsStage(),
+        getUserActionNormalizeStage(),
+        {
+          $match: {
+            userActionValue: {
+              $regex: /^result_opened/,
+              $options: "i"
+            }
+          }
+        },
+        {
+          $group: {
+            _id: { $dateToString: { format: "%Y-%m-%d", date: { $toDate: "$_id" } } },
+            clicks: { $sum: 1 }
+          }
+        },
+        { $sort: { _id: 1 } }
+      ];
+
+      const trendRangeStart = startDate || (() => {
+        const fallback = new Date();
+        fallback.setUTCDate(fallback.getUTCDate() - 29);
+        fallback.setUTCHours(0, 0, 0, 0);
+        return fallback;
+      })();
+      const trendRangeEnd = endDate || new Date();
+
       const [
         totalUsersResult,
         totalUploadsResult,
@@ -648,7 +763,10 @@ export async function registerRoutes(server: Server, app: Express) {
         downloadsAgg,
         classificationStats,
         deviceStats,
-        trendData
+        trendData,
+        dailyUploads,
+        dailyActiveUsers,
+        dailyClicks
       ] = await Promise.all([
         features.aggregate(totalUsersPipeline).toArray(),
         features.aggregate(totalUploadsPipeline).toArray(),
@@ -657,7 +775,10 @@ export async function registerRoutes(server: Server, app: Express) {
         features.aggregate(downloadsPipeline).toArray(),
         features.aggregate(classificationStatsPipeline).toArray(),
         features.aggregate(deviceStatsPipeline).toArray(),
-        features.aggregate(trendDataPipeline).toArray()
+        features.aggregate(trendDataPipeline).toArray(),
+        features.aggregate(dailyUploadsPipeline).toArray(),
+        features.aggregate(dailyActiveUsersPipeline).toArray(),
+        features.aggregate(dailyClicksPipeline).toArray()
       ]);
 
       const totalUsers = totalUsersResult[0]?.distinct_users || 0;
@@ -667,6 +788,12 @@ export async function registerRoutes(server: Server, app: Express) {
       const avgClickedRank = totalClicks > 0 ? ((totalRank / totalClicks) * 100).toFixed(2) : "0.00";
       const totalShares = sharesAgg[0]?.total || 0;
       const totalDownloads = downloadsAgg[0]?.total || 0;
+      const activityTrend = mergeActivityTrend(
+        buildDailyDateRange(trendRangeStart, trendRangeEnd),
+        dailyUploads as Array<{ _id: string; uploads: number }>,
+        dailyActiveUsers as Array<{ _id: string; activeUsers: number }>,
+        dailyClicks as Array<{ _id: string; clicks: number }>
+      );
 
       const response = {
         kpis: {
@@ -682,7 +809,8 @@ export async function registerRoutes(server: Server, app: Express) {
         },
         classificationStats,
         deviceStats,
-        trendData
+        trendData,
+        activityTrend
       };
       console.log("[OVERVIEW] Response:", JSON.stringify(response, null, 2));
       res.json(response);
