@@ -270,6 +270,24 @@ export async function registerRoutes(server: Server, app: Express) {
     ];
   };
 
+  // Analytics stores user action name in `operation` (v2) or legacy `action`
+  const getUserActionValueExpression = () => ({
+    $ifNull: ["$user_actions.operation", "$user_actions.action"]
+  });
+
+  const getUserActionNormalizeStage = () => ({
+    $addFields: {
+      userActionValue: getUserActionValueExpression()
+    }
+  });
+
+  const getUnwindUserActionsStage = () => ({
+    $unwind: {
+      path: "$user_actions",
+      preserveNullAndEmptyArrays: false
+    }
+  });
+
   // ─── MAP DATA PROXY ──────────────────────────────────────────────────────────
   // Fetches TopoJSON from Highcharts CDN, converts to GeoJSON server-side,
   // and returns ready-to-render GeoJSON FeatureCollection to the browser.
@@ -442,15 +460,11 @@ export async function registerRoutes(server: Server, app: Express) {
             }
           }
         },
-        {
-          $unwind: {
-            path: "$user_actions",
-            preserveNullAndEmptyArrays: false
-          }
-        },
+        getUnwindUserActionsStage(),
+        getUserActionNormalizeStage(),
         {
           $match: {
-            "user_actions.action": {
+            "userActionValue": {
               $in: ["link_copied", "result_shared_on_mail"]
             }
           }
@@ -488,15 +502,11 @@ export async function registerRoutes(server: Server, app: Express) {
             }
           }
         },
-        {
-          $unwind: {
-            path: "$user_actions",
-            preserveNullAndEmptyArrays: false
-          }
-        },
+        getUnwindUserActionsStage(),
+        getUserActionNormalizeStage(),
         {
           $match: {
-            "user_actions.action": "summary_downloaded"
+            "userActionValue": "summary_downloaded"
           }
         },
         {
@@ -521,15 +531,11 @@ export async function registerRoutes(server: Server, app: Express) {
             }
           }
         },
-        {
-          $unwind: {
-            path: "$user_actions",
-            preserveNullAndEmptyArrays: false
-          }
-        },
+        getUnwindUserActionsStage(),
+        getUserActionNormalizeStage(),
         {
           $match: {
-            "user_actions.action": {
+            "userActionValue": {
               $regex: /^result_opened/,
               $options: "i"
             }
@@ -543,7 +549,7 @@ export async function registerRoutes(server: Server, app: Express) {
                 vars: {
                   matchResult: {
                     $regexFind: {
-                      input: "$user_actions.action",
+                      input: "$userActionValue",
                       regex: /current_index_(\d+)/,
                       options: "i"
                     }
@@ -1398,15 +1404,11 @@ export async function registerRoutes(server: Server, app: Express) {
                   }
                 }
               },
-              {
-                $unwind: {
-                  path: "$user_actions",
-                  preserveNullAndEmptyArrays: false
-                }
-              },
+              getUnwindUserActionsStage(),
+              getUserActionNormalizeStage(),
               {
                 $match: {
-                  "user_actions.action": {
+                  "userActionValue": {
                     $regex: /^result_opened/,
                     $options: "i"
                   }
@@ -1419,7 +1421,7 @@ export async function registerRoutes(server: Server, app: Express) {
                       vars: {
                         matchResult: {
                           $regexFind: {
-                            input: "$user_actions.action",
+                            input: "$userActionValue",
                             regex: /current_index_(\d+)/,
                             options: "i"
                           }
@@ -1455,22 +1457,18 @@ export async function registerRoutes(server: Server, app: Express) {
                   }
                 }
               },
-              {
-                $unwind: {
-                  path: "$user_actions",
-                  preserveNullAndEmptyArrays: false
-                }
-              },
+              getUnwindUserActionsStage(),
+              getUserActionNormalizeStage(),
               {
                 $addFields: {
                   isShare: {
                     $or: [
-                      { $eq: [{ $toLower: "$user_actions.action" }, "link_copied"] },
-                      { $eq: [{ $toLower: "$user_actions.action" }, "result_shared_on_mail"] }
+                      { $eq: [{ $toLower: "$userActionValue" }, "link_copied"] },
+                      { $eq: [{ $toLower: "$userActionValue" }, "result_shared_on_mail"] }
                     ]
                   },
                   isDownload: {
-                    $eq: [{ $toLower: "$user_actions.action" }, "summary_downloaded"]
+                    $eq: [{ $toLower: "$userActionValue" }, "summary_downloaded"]
                   }
                 }
               },
@@ -1802,15 +1800,11 @@ export async function registerRoutes(server: Server, app: Express) {
             }
           }
         },
-        {
-          $unwind: {
-            path: "$user_actions",
-            preserveNullAndEmptyArrays: false
-          }
-        },
+        getUnwindUserActionsStage(),
+        getUserActionNormalizeStage(),
         {
           $match: {
-            "user_actions.action": {
+            "userActionValue": {
               $regex: /^result_opened/,
               $options: "i"
             }
@@ -1823,7 +1817,7 @@ export async function registerRoutes(server: Server, app: Express) {
                 vars: {
                   matchResult: {
                     $regexFind: {
-                      input: "$user_actions.action",
+                      input: "$userActionValue",
                       regex: /current_index_(\d+)/,
                       options: "i"
                     }
@@ -1843,7 +1837,7 @@ export async function registerRoutes(server: Server, app: Express) {
                 vars: {
                   matchResult: {
                     $regexFind: {
-                      input: "$user_actions.action",
+                      input: "$userActionValue",
                       regex: /public_id_(.+)$/,
                       options: "i"
                     }
@@ -2042,15 +2036,11 @@ export async function registerRoutes(server: Server, app: Express) {
             }
           }
         },
-        {
-          $unwind: {
-            path: "$user_actions",
-            preserveNullAndEmptyArrays: false
-          }
-        },
+        getUnwindUserActionsStage(),
+        getUserActionNormalizeStage(),
         {
           $match: {
-            "user_actions.action": {
+            "userActionValue": {
               $regex: /^result_opened/,
               $options: "i"
             }
@@ -2063,7 +2053,7 @@ export async function registerRoutes(server: Server, app: Express) {
                 vars: {
                   matchResult: {
                     $regexFind: {
-                      input: "$user_actions.action",
+                      input: "$userActionValue",
                       regex: /current_index_(\d+)/,
                       options: "i"
                     }
@@ -2149,15 +2139,11 @@ export async function registerRoutes(server: Server, app: Express) {
             }
           }
         },
-        {
-          $unwind: {
-            path: "$user_actions",
-            preserveNullAndEmptyArrays: false
-          }
-        },
+        getUnwindUserActionsStage(),
+        getUserActionNormalizeStage(),
         {
           $match: {
-            "user_actions.action": {
+            "userActionValue": {
               $regex: /^result_opened/,
               $options: "i"
             }
@@ -2170,7 +2156,7 @@ export async function registerRoutes(server: Server, app: Express) {
                 vars: {
                   matchResult: {
                     $regexFind: {
-                      input: "$user_actions.action",
+                      input: "$userActionValue",
                       regex: /current_index_(\d+)/,
                       options: "i"
                     }
@@ -2225,15 +2211,11 @@ export async function registerRoutes(server: Server, app: Express) {
             }
           }
         },
-        {
-          $unwind: {
-            path: "$user_actions",
-            preserveNullAndEmptyArrays: false
-          }
-        },
+        getUnwindUserActionsStage(),
+        getUserActionNormalizeStage(),
         {
           $match: {
-            "user_actions.action": {
+            "userActionValue": {
               $regex: /^result_opened/,
               $options: "i"
             }
@@ -2246,7 +2228,7 @@ export async function registerRoutes(server: Server, app: Express) {
                 vars: {
                   matchResult: {
                     $regexFind: {
-                      input: "$user_actions.action",
+                      input: "$userActionValue",
                       regex: /current_index_(\d+)/,
                       options: "i"
                     }
@@ -2388,15 +2370,11 @@ export async function registerRoutes(server: Server, app: Express) {
             }
           }
         },
-        {
-          $unwind: {
-            path: "$user_actions",
-            preserveNullAndEmptyArrays: false
-          }
-        },
+        getUnwindUserActionsStage(),
+        getUserActionNormalizeStage(),
         {
           $match: {
-            "user_actions.action": {
+            "userActionValue": {
               $regex: /^result_opened/,
               $options: "i"
             }
@@ -2409,7 +2387,7 @@ export async function registerRoutes(server: Server, app: Express) {
                 vars: {
                   matchResult: {
                     $regexFind: {
-                      input: "$user_actions.action",
+                      input: "$userActionValue",
                       regex: /current_index_(\d+)/,
                       options: "i"
                     }
@@ -2518,15 +2496,11 @@ export async function registerRoutes(server: Server, app: Express) {
             }
           }
         },
-        {
-          $unwind: {
-            path: "$user_actions",
-            preserveNullAndEmptyArrays: false
-          }
-        },
+        getUnwindUserActionsStage(),
+        getUserActionNormalizeStage(),
         {
           $match: {
-            "user_actions.action": {
+            "userActionValue": {
               $regex: /^result_opened/,
               $options: "i"
             }
@@ -2641,15 +2615,11 @@ export async function registerRoutes(server: Server, app: Express) {
             }
           }
         },
-        {
-          $unwind: {
-            path: "$user_actions",
-            preserveNullAndEmptyArrays: false
-          }
-        },
+        getUnwindUserActionsStage(),
+        getUserActionNormalizeStage(),
         {
           $match: {
-            "user_actions.action": {
+            "userActionValue": {
               $regex: /^result_opened/,
               $options: "i"
             }
@@ -2662,7 +2632,7 @@ export async function registerRoutes(server: Server, app: Express) {
                 vars: {
                   matchResult: {
                     $regexFind: {
-                      input: "$user_actions.action",
+                      input: "$userActionValue",
                       regex: /current_index_(\d+)/,
                       options: "i"
                     }
@@ -2709,15 +2679,11 @@ export async function registerRoutes(server: Server, app: Express) {
             }
           }
         },
-        {
-          $unwind: {
-            path: "$user_actions",
-            preserveNullAndEmptyArrays: false
-          }
-        },
+        getUnwindUserActionsStage(),
+        getUserActionNormalizeStage(),
         {
           $match: {
-            "user_actions.action": {
+            "userActionValue": {
               $in: ["link_copied", "result_shared_on_mail", "summary_downloaded"]
             }
           }
@@ -2726,10 +2692,10 @@ export async function registerRoutes(server: Server, app: Express) {
           $addFields: {
             computedDeviceType: getDeviceTypeExpression(),
             isShare: {
-              $in: ["$user_actions.action", ["link_copied", "result_shared_on_mail"]]
+              $in: ["$userActionValue", ["link_copied", "result_shared_on_mail"]]
             },
             isDownload: {
-              $eq: ["$user_actions.action", "summary_downloaded"]
+              $eq: ["$userActionValue", "summary_downloaded"]
             }
           }
         },
@@ -2851,15 +2817,11 @@ export async function registerRoutes(server: Server, app: Express) {
             }
           }
         },
-        {
-          $unwind: {
-            path: "$user_actions",
-            preserveNullAndEmptyArrays: false
-          }
-        },
+        getUnwindUserActionsStage(),
+        getUserActionNormalizeStage(),
         {
           $match: {
-            "user_actions.action": {
+            "userActionValue": {
               $regex: /^result_opened/,
               $options: "i"
             }
@@ -2872,7 +2834,7 @@ export async function registerRoutes(server: Server, app: Express) {
                 vars: {
                   matchResult: {
                     $regexFind: {
-                      input: "$user_actions.action",
+                      input: "$userActionValue",
                       regex: /current_index_(\d+)/,
                       options: "i"
                     }
@@ -3088,15 +3050,11 @@ export async function registerRoutes(server: Server, app: Express) {
             created_at: { $exists: true }
           }
         },
-        {
-          $unwind: {
-            path: "$user_actions",
-            preserveNullAndEmptyArrays: false
-          }
-        },
+        getUnwindUserActionsStage(),
+        getUserActionNormalizeStage(),
         {
           $match: {
-            "user_actions.action": {
+            "userActionValue": {
               $regex: /^result_opened/,
               $options: "i"
             }
@@ -3194,15 +3152,11 @@ export async function registerRoutes(server: Server, app: Express) {
             created_at: { $exists: true }
           }
         },
-        {
-          $unwind: {
-            path: "$user_actions",
-            preserveNullAndEmptyArrays: false
-          }
-        },
+        getUnwindUserActionsStage(),
+        getUserActionNormalizeStage(),
         {
           $match: {
-            "user_actions.action": {
+            "userActionValue": {
               $regex: /^result_opened/,
               $options: "i"
             }
@@ -3242,15 +3196,11 @@ export async function registerRoutes(server: Server, app: Express) {
             created_at: { $exists: true }
           }
         },
-        {
-          $unwind: {
-            path: "$user_actions",
-            preserveNullAndEmptyArrays: false
-          }
-        },
+        getUnwindUserActionsStage(),
+        getUserActionNormalizeStage(),
         {
           $match: {
-            "user_actions.action": {
+            "userActionValue": {
               $in: ["link_copied", "result_shared_on_mail", "summary_downloaded"]
             }
           }
@@ -3264,10 +3214,10 @@ export async function registerRoutes(server: Server, app: Express) {
               }
             },
             isShare: {
-              $in: ["$user_actions.action", ["link_copied", "result_shared_on_mail"]]
+              $in: ["$userActionValue", ["link_copied", "result_shared_on_mail"]]
             },
             isDownload: {
-              $eq: ["$user_actions.action", "summary_downloaded"]
+              $eq: ["$userActionValue", "summary_downloaded"]
             }
           }
         },
@@ -3384,15 +3334,11 @@ export async function registerRoutes(server: Server, app: Express) {
             }
           }
         },
-        {
-          $unwind: {
-            path: "$user_actions",
-            preserveNullAndEmptyArrays: false
-          }
-        },
+        getUnwindUserActionsStage(),
+        getUserActionNormalizeStage(),
         {
           $match: {
-            "user_actions.action": {
+            "userActionValue": {
               $in: ["link_copied", "result_shared_on_mail"]
             }
           }
@@ -3418,15 +3364,11 @@ export async function registerRoutes(server: Server, app: Express) {
             }
           }
         },
-        {
-          $unwind: {
-            path: "$user_actions",
-            preserveNullAndEmptyArrays: false
-          }
-        },
+        getUnwindUserActionsStage(),
+        getUserActionNormalizeStage(),
         {
           $match: {
-            "user_actions.action": "summary_downloaded"
+            "userActionValue": "summary_downloaded"
           }
         },
         {
@@ -3469,15 +3411,11 @@ export async function registerRoutes(server: Server, app: Express) {
             normalizedClassification: classificationNormalizeExpr
           }
         },
-        {
-          $unwind: {
-            path: "$user_actions",
-            preserveNullAndEmptyArrays: false
-          }
-        },
+        getUnwindUserActionsStage(),
+        getUserActionNormalizeStage(),
         {
           $match: {
-            "user_actions.action": {
+            "userActionValue": {
               $in: ["link_copied", "result_shared_on_mail", "summary_downloaded"]
             }
           }
@@ -3485,10 +3423,10 @@ export async function registerRoutes(server: Server, app: Express) {
         {
           $addFields: {
             isShare: {
-              $in: ["$user_actions.action", ["link_copied", "result_shared_on_mail"]]
+              $in: ["$userActionValue", ["link_copied", "result_shared_on_mail"]]
             },
             isDownload: {
-              $eq: ["$user_actions.action", "summary_downloaded"]
+              $eq: ["$userActionValue", "summary_downloaded"]
             }
           }
         },
@@ -3525,15 +3463,11 @@ export async function registerRoutes(server: Server, app: Express) {
             computedDeviceType: getDeviceTypeExpression()
           }
         },
-        {
-          $unwind: {
-            path: "$user_actions",
-            preserveNullAndEmptyArrays: false
-          }
-        },
+        getUnwindUserActionsStage(),
+        getUserActionNormalizeStage(),
         {
           $match: {
-            "user_actions.action": {
+            "userActionValue": {
               $in: ["link_copied", "result_shared_on_mail", "summary_downloaded"]
             }
           }
@@ -3541,10 +3475,10 @@ export async function registerRoutes(server: Server, app: Express) {
         {
           $addFields: {
             isShare: {
-              $in: ["$user_actions.action", ["link_copied", "result_shared_on_mail"]]
+              $in: ["$userActionValue", ["link_copied", "result_shared_on_mail"]]
             },
             isDownload: {
-              $eq: ["$user_actions.action", "summary_downloaded"]
+              $eq: ["$userActionValue", "summary_downloaded"]
             }
           }
         },
@@ -3585,15 +3519,11 @@ export async function registerRoutes(server: Server, app: Express) {
             city: "$userLocation.city"
           }
         },
-        {
-          $unwind: {
-            path: "$user_actions",
-            preserveNullAndEmptyArrays: false
-          }
-        },
+        getUnwindUserActionsStage(),
+        getUserActionNormalizeStage(),
         {
           $match: {
-            "user_actions.action": {
+            "userActionValue": {
               $in: ["link_copied", "result_shared_on_mail", "summary_downloaded"]
             }
           }
@@ -3601,10 +3531,10 @@ export async function registerRoutes(server: Server, app: Express) {
         {
           $addFields: {
             isShare: {
-              $in: ["$user_actions.action", ["link_copied", "result_shared_on_mail"]]
+              $in: ["$userActionValue", ["link_copied", "result_shared_on_mail"]]
             },
             isDownload: {
-              $eq: ["$user_actions.action", "summary_downloaded"]
+              $eq: ["$userActionValue", "summary_downloaded"]
             }
           }
         },
@@ -3672,15 +3602,11 @@ export async function registerRoutes(server: Server, app: Express) {
             }
           }
         },
-        {
-          $unwind: {
-            path: "$user_actions",
-            preserveNullAndEmptyArrays: false
-          }
-        },
+        getUnwindUserActionsStage(),
+        getUserActionNormalizeStage(),
         {
           $match: {
-            "user_actions.action": {
+            "userActionValue": {
               $in: ["link_copied", "result_shared_on_mail", "summary_downloaded"]
             }
           }
@@ -3688,10 +3614,10 @@ export async function registerRoutes(server: Server, app: Express) {
         {
           $addFields: {
             isShare: {
-              $in: ["$user_actions.action", ["link_copied", "result_shared_on_mail"]]
+              $in: ["$userActionValue", ["link_copied", "result_shared_on_mail"]]
             },
             isDownload: {
-              $eq: ["$user_actions.action", "summary_downloaded"]
+              $eq: ["$userActionValue", "summary_downloaded"]
             }
           }
         },
