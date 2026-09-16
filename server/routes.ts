@@ -231,8 +231,8 @@ export async function registerRoutes(server: Server, app: Express) {
       };
     } else {
       // "All Domains" case — we still MUST globally exclude specific unwanted domains
-      // Exclude: roomup.in, getrara.ai, localhost, services.getrara.ai
-      const excludedDomains = ["roomup\\.in", "getrara\\.ai", "localhost", "services\\.getrara\\.ai"];
+      // Exclude: roomup.in, 3dview.app, getrara.ai, localhost, services.getrara.ai
+      const excludedDomains = ["roomup\\.in", "3dview\\.app", "getrara\\.ai", "localhost", "services\\.getrara\\.ai"];
       filters.pageDetail = {
         $not: new RegExp(`https?://(?:www\\.)?(?:${excludedDomains.join("|")})`, "i")
       };
@@ -319,6 +319,222 @@ export async function registerRoutes(server: Server, app: Express) {
       uploads: uploadsMap.get(date) || 0,
       clicks: clicksMap.get(date) || 0,
     }));
+  };
+
+  const AB_VARIANTS = ["v1", "v2"];
+  const UI_EVENTS_COLLECTION = process.env.UI_EVENTS_COLLECTION || "ui_events";
+
+  const buildDomainRegexFilter = (domain?: string, fieldName = "pageDetail") => {
+    if (!domain || domain === "all") {
+      const excludedDomains = ["roomup\\.in", "3dview\\.app", "getrara\\.ai", "localhost", "services\\.getrara\\.ai"];
+      return {
+        [fieldName]: {
+          $not: new RegExp(`https?://(?:www\\.)?(?:${excludedDomains.join("|")})`, "i")
+        }
+      };
+    }
+
+    const domainStr = String(domain);
+    const escapedDomain = domainStr.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&");
+    const encodedDomain = domainStr.replace(/\./g, "[.%2E]");
+    return {
+      [fieldName]: {
+        $regex: new RegExp(
+          `(?:https?://(?:www\\.)?${escapedDomain}|${encodedDomain}(?:%2F|/|$|\\?|&))`,
+          "i"
+        ),
+      }
+    };
+  };
+
+  const parseAbFilters = (req: Request) => {
+    const { startDate, endDate, domain, device } = req.query;
+    const { startDateNormalized, endDateNormalized } = normalizeDateRange(
+      startDate as string,
+      endDate as string
+    );
+
+    return {
+      startDate: startDateNormalized,
+      endDate: endDateNormalized,
+      domain: domain ? String(domain) : "engineeredfloors.com",
+      device: device ? String(device) : undefined,
+    };
+  };
+
+  const buildCreatedAtMatch = (startDate?: Date, endDate?: Date) => {
+    if (!startDate && !endDate) return [];
+    const dateExpr: any[] = [];
+    if (startDate) {
+      dateExpr.push({ $gte: [{ $toDate: "$created_at" }, startDate] });
+    }
+    if (endDate) {
+      dateExpr.push({ $lte: [{ $toDate: "$created_at" }, endDate] });
+    }
+    return [{ $match: { $expr: { $and: dateExpr } } }];
+  };
+
+  const UI_EVENT_ASSIGNED_REGEX = /^cta_ab_assign/i;
+  const UI_EVENT_CLICKED_REGEX = /^cta_clicked/i;
+
+  const buildUiEventsBaseMatch = (startDate?: Date, endDate?: Date, domain?: string) => [
+    {
+      $match: {
+        userId: { $ne: null },
+        cta_ui_version: { $in: AB_VARIANTS },
+        ...buildDomainRegexFilter(domain, "page_detail")
+      }
+    },
+    ...buildCreatedAtMatch(startDate, endDate)
+  ];
+
+  const buildAnalyticsAbBaseMatch = (startDate?: Date, endDate?: Date) => [
+    {
+      $match: {
+        sessionId: { $exists: true, $ne: null },
+        userId: { $ne: null },
+      },
+    },
+    ...buildCreatedAtMatch(startDate, endDate),
+  ];
+
+  // AB-testing only: analytics for users with ui_events on domain, after their first entry.
+  const buildUiEventsFirstEntryLookupStages = (domain?: string) => {
+    const domainFilter = buildDomainRegexFilter(domain, "page_detail");
+    const uiEventMatch: Record<string, unknown> = {
+      cta_ui_version: { $in: AB_VARIANTS },
+      userId: { $ne: null },
+      ...domainFilter,
+      $expr: { $eq: ["$userId", "$$uid"] },
+    };
+
+    return [
+      {
+        $lookup: {
+          from: UI_EVENTS_COLLECTION,
+          let: { uid: "$userId" },
+          pipeline: [
+            { $match: uiEventMatch },
+            { $sort: { created_at: 1 } },
+            { $limit: 1 },
+            { $project: { cta_ui_version: 1, firstUiEventAt: "$created_at", _id: 0 } },
+          ],
+          as: "_abEntry",
+        },
+      },
+      { $match: { "_abEntry.0": { $exists: true } } },
+      {
+        $addFields: {
+          abVariant: { $toLower: { $arrayElemAt: ["$_abEntry.cta_ui_version", 0] } },
+          firstUiEventAt: { $arrayElemAt: ["$_abEntry.firstUiEventAt", 0] },
+        },
+      },
+      {
+        $match: {
+          $expr: { $gte: [{ $toDate: "$created_at" }, { $toDate: "$firstUiEventAt" }] },
+        },
+      },
+      { $match: { abVariant: { $in: AB_VARIANTS } } },
+      { $project: { _abEntry: 0, firstUiEventAt: 0 } },
+    ];
+  };
+
+  const emptyAbVariantMetrics = () => ({
+    served: 0,
+    ctaClicked: 0,
+    activeUsers: 0,
+    uploads: 0,
+    clicks: 0,
+    shares: 0,
+    downloads: 0,
+    recommendations: 0,
+    returningUsers: 0,
+    clickRate: 0,
+    ctaClickRate: 0,
+    conversionRate: 0,
+    shareDownloadRate: 0,
+    avgUploadsPerUser: 0,
+    avgClickedRank: 0,
+  });
+
+  const computeAbVariantMetrics = (raw: Partial<ReturnType<typeof emptyAbVariantMetrics>>) => {
+    const metrics = { ...emptyAbVariantMetrics(), ...raw };
+    metrics.clickRate = metrics.uploads > 0
+      ? parseFloat(((metrics.clicks / metrics.uploads) * 100).toFixed(2))
+      : 0;
+    metrics.ctaClickRate = metrics.served > 0
+      ? parseFloat(((metrics.ctaClicked / metrics.served) * 100).toFixed(2))
+      : 0;
+    metrics.conversionRate = metrics.served > 0
+      ? parseFloat(((metrics.uploads / metrics.served) * 100).toFixed(2))
+      : 0;
+    metrics.shareDownloadRate = metrics.uploads > 0
+      ? parseFloat((((metrics.shares + metrics.downloads) / metrics.uploads) * 100).toFixed(2))
+      : 0;
+    metrics.avgUploadsPerUser = metrics.activeUsers > 0
+      ? parseFloat((metrics.uploads / metrics.activeUsers).toFixed(2))
+      : 0;
+    return metrics;
+  };
+
+  const buildAbComparison = (v1: ReturnType<typeof computeAbVariantMetrics>, v2: ReturnType<typeof computeAbVariantMetrics>) => {
+    const metricDefs: Array<{
+      key: keyof ReturnType<typeof emptyAbVariantMetrics>;
+      label: string;
+      format: "number" | "percent";
+    }> = [
+      { key: "conversionRate", label: "Conversion Rate", format: "percent" },
+      { key: "ctaClickRate", label: "CTA Click Rate", format: "percent" },
+      { key: "activeUsers", label: "Active Users", format: "number" },
+      { key: "uploads", label: "Image Uploads", format: "number" },
+      { key: "clickRate", label: "Product Click Rate", format: "percent" },
+      { key: "clicks", label: "Product Clicks", format: "number" },
+      { key: "avgUploadsPerUser", label: "Avg Uploads / User", format: "number" },
+      { key: "returningUsers", label: "Returning Users", format: "number" },
+      { key: "shareDownloadRate", label: "Share / Download Rate", format: "percent" },
+    ];
+
+    let v1Wins = 0;
+    let v2Wins = 0;
+
+    const metrics = metricDefs.map(({ key, label, format }) => {
+      const v1Value = v1[key] as number;
+      const v2Value = v2[key] as number;
+      let winner: "v1" | "v2" | "tie" = "tie";
+      if (v1Value > v2Value) {
+        winner = "v1";
+        v1Wins += 1;
+      } else if (v2Value > v1Value) {
+        winner = "v2";
+        v2Wins += 1;
+      }
+
+      const delta = v1Value === 0
+        ? (v2Value > 0 ? 100 : 0)
+        : parseFloat((((v2Value - v1Value) / v1Value) * 100).toFixed(1));
+
+      return { label, v1: v1Value, v2: v2Value, winner, delta, format };
+    });
+
+    const overallWinner = v1Wins > v2Wins ? "v1" : v2Wins > v1Wins ? "v2" : "tie";
+
+    return { metrics, overallWinner, v1Wins, v2Wins };
+  };
+
+  const mapVariantCounts = (rows: Array<{ _id: string; count: number }>) => {
+    const map = new Map<string, number>();
+    rows.forEach((row) => {
+      if (row._id) {
+        map.set(String(row._id).toLowerCase(), row.count);
+      }
+    });
+    return map;
+  };
+
+  const normalizeVariantKey = (value?: string | null) => {
+    if (!value) return null;
+    const normalized = String(value).toLowerCase();
+    return AB_VARIANTS.includes(normalized) ? normalized : null;
   };
 
   // ─── MAP DATA PROXY ──────────────────────────────────────────────────────────
@@ -4108,8 +4324,417 @@ export async function registerRoutes(server: Server, app: Express) {
     }
   });
 
+  // GET /api/ab-testing - CTA UI v1 vs v2 comparison (ui_events + analytics)
+  app.get("/api/ab-testing", async (req: Request, res: Response) => {
+    try {
+      const db = getDatabase();
+      const uiEvents = db.collection(UI_EVENTS_COLLECTION);
+      const features = db.collection(FEATURES_COLLECTION);
+      const { startDate, endDate, domain, device } = parseAbFilters(req);
+
+      const uiEventsBase = buildUiEventsBaseMatch(startDate, endDate, domain);
+      const analyticsBase = buildAnalyticsAbBaseMatch(startDate, endDate);
+      const abVariantStages = buildUiEventsFirstEntryLookupStages(domain);
+
+      const [
+        servedRows,
+        ctaClickedRows,
+        analyticsBasicRows,
+        analyticsReturningRows,
+        analyticsClicksRows,
+        analyticsSharesRows,
+        deviceRows,
+        geoRows,
+        dailyServedRows,
+        dailyUploadRows,
+        dailyClickRows,
+      ] = await Promise.all([
+        uiEvents.aggregate([
+          ...uiEventsBase,
+          { $match: { operation: { $regex: UI_EVENT_ASSIGNED_REGEX } } },
+          { $group: { _id: "$cta_ui_version", users: { $addToSet: "$userId" } } },
+          { $project: { _id: 1, count: { $size: "$users" } } },
+        ]).toArray(),
+        uiEvents.aggregate([
+          ...uiEventsBase,
+          { $match: { operation: { $regex: UI_EVENT_CLICKED_REGEX } } },
+          { $group: { _id: "$cta_ui_version", users: { $addToSet: "$userId" } } },
+          { $project: { _id: 1, count: { $size: "$users" } } },
+        ]).toArray(),
+        features.aggregate([
+          ...analyticsBase,
+          ...getDeviceFilterStages(device),
+          ...abVariantStages,
+          {
+            $group: {
+              _id: "$abVariant",
+              activeUsers: { $addToSet: "$userId" },
+              uploads: { $sum: 1 },
+            },
+          },
+          {
+            $project: {
+              _id: 1,
+              count: { $size: "$activeUsers" },
+              uploads: 1,
+            },
+          },
+        ]).toArray(),
+        features.aggregate([
+          ...analyticsBase,
+          ...getDeviceFilterStages(device),
+          ...abVariantStages,
+          { $group: { _id: { version: "$abVariant", userId: "$userId" }, sessions: { $sum: 1 } } },
+          { $match: { sessions: { $gt: 1 } } },
+          { $group: { _id: "$_id.version", count: { $sum: 1 } } },
+        ]).toArray(),
+        features.aggregate([
+          ...analyticsBase,
+          ...getDeviceFilterStages(device),
+          ...abVariantStages,
+          {
+            $match: {
+              user_actions: { $exists: true, $type: "array", $ne: [] },
+            },
+          },
+          getUnwindUserActionsStage(),
+          getUserActionNormalizeStage(),
+          {
+            $match: {
+              userActionValue: { $regex: /^result_opened/i },
+            },
+          },
+          {
+            $addFields: {
+              extractedRank: {
+                $let: {
+                  vars: {
+                    matchResult: {
+                      $regexFind: {
+                        input: "$userActionValue",
+                        regex: /current_index_(\d+)/,
+                        options: "i",
+                      },
+                    },
+                  },
+                  in: {
+                    $cond: [
+                      { $ne: ["$$matchResult", null] },
+                      { $toInt: { $arrayElemAt: ["$$matchResult.captures", 0] } },
+                      1,
+                    ],
+                  },
+                },
+              },
+            },
+          },
+          {
+            $group: {
+              _id: "$abVariant",
+              clicks: { $sum: 1 },
+              totalRank: { $sum: "$extractedRank" },
+            },
+          },
+        ]).toArray(),
+        features.aggregate([
+          ...analyticsBase,
+          ...getDeviceFilterStages(device),
+          ...abVariantStages,
+          {
+            $match: {
+              user_actions: { $exists: true, $type: "array", $ne: [] },
+            },
+          },
+          getUnwindUserActionsStage(),
+          getUserActionNormalizeStage(),
+          {
+            $match: {
+              userActionValue: {
+                $in: ["link_copied", "result_shared_on_mail", "summary_downloaded"],
+              },
+            },
+          },
+          {
+            $addFields: {
+              isShare: {
+                $in: ["$userActionValue", ["link_copied", "result_shared_on_mail"]],
+              },
+              isRecommendation: {
+                $eq: ["$userActionValue", "result_shared_on_mail"],
+              },
+              isDownload: {
+                $eq: ["$userActionValue", "summary_downloaded"],
+              },
+            },
+          },
+          {
+            $group: {
+              _id: "$abVariant",
+              shares: { $sum: { $cond: ["$isShare", 1, 0] } },
+              recommendations: { $sum: { $cond: ["$isRecommendation", 1, 0] } },
+              downloads: { $sum: { $cond: ["$isDownload", 1, 0] } },
+            },
+          },
+        ]).toArray(),
+        features.aggregate([
+          ...analyticsBase,
+          ...getDeviceFilterStages(device),
+          ...abVariantStages,
+          { $addFields: { computedDeviceType: getDeviceTypeExpression() } },
+          {
+            $group: {
+              _id: { version: "$abVariant", device: "$computedDeviceType" },
+              users: { $addToSet: "$userId" },
+              uploads: { $sum: 1 },
+            },
+          },
+          {
+            $project: {
+              _id: 1,
+              users: { $size: "$users" },
+              uploads: 1,
+            },
+          },
+        ]).toArray(),
+        features.aggregate([
+          ...analyticsBase,
+          ...getDeviceFilterStages(device),
+          ...abVariantStages,
+          {
+            $match: {
+              userLocation: { $exists: true, $ne: null },
+            },
+          },
+          {
+            $addFields: {
+              state: { $ifNull: ["$userLocation.regionName", "$userLocation.region", "Unknown"] },
+              city: { $ifNull: ["$userLocation.city", "Unknown"] },
+            },
+          },
+          {
+            $group: {
+              _id: { version: "$abVariant", state: "$state", city: "$city" },
+              uniqueUsers: { $addToSet: "$userId" },
+              uploads: { $sum: 1 },
+            },
+          },
+          {
+            $project: {
+              _id: 1,
+              uniqueUsers: { $size: "$uniqueUsers" },
+              uploads: 1,
+            },
+          },
+          { $sort: { uploads: -1 } },
+          { $limit: 40 },
+        ]).toArray(),
+        uiEvents.aggregate([
+          ...uiEventsBase,
+          { $match: { operation: { $regex: UI_EVENT_ASSIGNED_REGEX } } },
+          {
+            $group: {
+              _id: {
+                date: { $dateToString: { format: "%Y-%m-%d", date: { $toDate: "$created_at" } } },
+                version: "$cta_ui_version",
+              },
+              users: { $addToSet: "$userId" },
+            },
+          },
+          {
+            $project: {
+              _id: 1,
+              count: { $size: "$users" },
+            },
+          },
+        ]).toArray(),
+        features.aggregate([
+          ...analyticsBase,
+          ...getDeviceFilterStages(device),
+          ...abVariantStages,
+          {
+            $group: {
+              _id: {
+                date: { $dateToString: { format: "%Y-%m-%d", date: { $toDate: "$created_at" } } },
+                version: "$abVariant",
+              },
+              uploads: { $sum: 1 },
+            },
+          },
+        ]).toArray(),
+        features.aggregate([
+          ...analyticsBase,
+          ...getDeviceFilterStages(device),
+          ...abVariantStages,
+          {
+            $match: {
+              user_actions: { $exists: true, $type: "array", $ne: [] },
+            },
+          },
+          getUnwindUserActionsStage(),
+          getUserActionNormalizeStage(),
+          {
+            $match: {
+              userActionValue: { $regex: /^result_opened/i },
+            },
+          },
+          {
+            $group: {
+              _id: {
+                date: { $dateToString: { format: "%Y-%m-%d", date: { $toDate: "$created_at" } } },
+                version: "$abVariant",
+              },
+              clicks: { $sum: 1 },
+            },
+          },
+        ]).toArray(),
+      ]);
+
+      const servedMap = mapVariantCounts(servedRows as Array<{ _id: string; count: number }>);
+      const ctaClickedMap = mapVariantCounts(ctaClickedRows as Array<{ _id: string; count: number }>);
+      const returningMap = mapVariantCounts(analyticsReturningRows as Array<{ _id: string; count: number }>);
+
+      const analyticsBasicMap = new Map<string, { activeUsers: number; uploads: number }>();
+      (analyticsBasicRows as any[]).forEach((row) => {
+        const version = normalizeVariantKey(row._id);
+        if (!version) return;
+        analyticsBasicMap.set(version, {
+          activeUsers: row.count || 0,
+          uploads: row.uploads || 0,
+        });
+      });
+
+      const clicksMap = new Map<string, { clicks: number; totalRank: number }>();
+      (analyticsClicksRows as any[]).forEach((row) => {
+        const version = normalizeVariantKey(row._id);
+        if (!version) return;
+        clicksMap.set(version, { clicks: row.clicks || 0, totalRank: row.totalRank || 0 });
+      });
+
+      const sharesMap = new Map<string, { shares: number; recommendations: number; downloads: number }>();
+      (analyticsSharesRows as any[]).forEach((row) => {
+        const version = normalizeVariantKey(row._id);
+        if (!version) return;
+        sharesMap.set(version, {
+          shares: row.shares || 0,
+          recommendations: row.recommendations || 0,
+          downloads: row.downloads || 0,
+        });
+      });
+
+      const buildVariantSummary = (version: string) => {
+        const basic = analyticsBasicMap.get(version) || { activeUsers: 0, uploads: 0 };
+        const clickStats = clicksMap.get(version) || { clicks: 0, totalRank: 0 };
+        const shareStats = sharesMap.get(version) || { shares: 0, recommendations: 0, downloads: 0 };
+        const served = servedMap.get(version) || 0;
+        const ctaClicked = ctaClickedMap.get(version) || 0;
+        const returningUsers = returningMap.get(version) || 0;
+        const avgClickedRank = clickStats.clicks > 0
+          ? parseFloat(((clickStats.totalRank / clickStats.clicks) * 100).toFixed(2))
+          : 0;
+
+        return computeAbVariantMetrics({
+          served,
+          ctaClicked,
+          activeUsers: basic.activeUsers,
+          uploads: basic.uploads,
+          clicks: clickStats.clicks,
+          shares: shareStats.shares,
+          downloads: shareStats.downloads,
+          recommendations: shareStats.recommendations,
+          returningUsers,
+          avgClickedRank,
+        });
+      };
+
+      const variants = {
+        v1: buildVariantSummary("v1"),
+        v2: buildVariantSummary("v2"),
+      };
+
+      const comparison = buildAbComparison(variants.v1, variants.v2);
+
+      const deviceByVariant: Record<string, Array<{ device: string; users: number; uploads: number }>> = {
+        v1: [],
+        v2: [],
+      };
+      (deviceRows as any[]).forEach((row) => {
+        const version = normalizeVariantKey(row._id?.version);
+        if (!version || !deviceByVariant[version]) return;
+        deviceByVariant[version].push({
+          device: row._id.device || "Unknown",
+          users: row.users || 0,
+          uploads: row.uploads || 0,
+        });
+      });
+
+      const geoByVariant: Record<string, Array<{ state: string; city: string; uniqueUsers: number; uploads: number }>> = {
+        v1: [],
+        v2: [],
+      };
+      (geoRows as any[]).forEach((row) => {
+        const version = normalizeVariantKey(row._id?.version);
+        if (!version || !geoByVariant[version]) return;
+        geoByVariant[version].push({
+          state: row._id.state || "Unknown",
+          city: row._id.city || "Unknown",
+          uniqueUsers: row.uniqueUsers || 0,
+          uploads: row.uploads || 0,
+        });
+      });
+
+      const trendRangeStart = startDate || (() => {
+        const fallback = new Date();
+        fallback.setUTCDate(fallback.getUTCDate() - 29);
+        fallback.setUTCHours(0, 0, 0, 0);
+        return fallback;
+      })();
+      const trendRangeEnd = endDate || new Date();
+      const trendDates = buildDailyDateRange(trendRangeStart, trendRangeEnd);
+
+      const dailyServedLookup = new Map<string, number>();
+      (dailyServedRows as any[]).forEach((row) => {
+        const version = normalizeVariantKey(row._id?.version);
+        if (!version) return;
+        dailyServedLookup.set(`${row._id.date}:${version}`, row.count || 0);
+      });
+      const dailyUploadLookup = new Map<string, number>();
+      (dailyUploadRows as any[]).forEach((row) => {
+        const version = normalizeVariantKey(row._id?.version);
+        if (!version) return;
+        dailyUploadLookup.set(`${row._id.date}:${version}`, row.uploads || 0);
+      });
+      const dailyClickLookup = new Map<string, number>();
+      (dailyClickRows as any[]).forEach((row) => {
+        const version = normalizeVariantKey(row._id?.version);
+        if (!version) return;
+        dailyClickLookup.set(`${row._id.date}:${version}`, row.clicks || 0);
+      });
+
+      const trend = trendDates.map((date) => ({
+        date,
+        v1Served: dailyServedLookup.get(`${date}:v1`) || 0,
+        v2Served: dailyServedLookup.get(`${date}:v2`) || 0,
+        v1Uploads: dailyUploadLookup.get(`${date}:v1`) || 0,
+        v2Uploads: dailyUploadLookup.get(`${date}:v2`) || 0,
+        v1Clicks: dailyClickLookup.get(`${date}:v1`) || 0,
+        v2Clicks: dailyClickLookup.get(`${date}:v2`) || 0,
+      }));
+
+      res.json({
+        variants,
+        comparison,
+        deviceByVariant,
+        geoByVariant,
+        trend,
+      });
+    } catch (error) {
+      console.error("[AB-TESTING] Error:", error);
+      res.status(500).json({ error: "Failed to fetch AB testing data" });
+    }
+  });
+
   // GET /api/page-domains - Get all unique domains from pageDetail field
-  // Excludes roomup.in and returns a sorted, deduplicated domain list
+  // Excludes unwanted domains and returns a sorted, deduplicated domain list
   // Uses Node.js URL parsing as the most reliable extraction method
   app.get("/api/page-domains", withApiCache(async (req: Request, res: Response) => {
     try {
@@ -4124,7 +4749,7 @@ export async function registerRoutes(server: Server, app: Express) {
       });
 
       // Extract hostnames in Node.js using the URL API — most reliable approach
-      const EXCLUDED_DOMAINS = ["roomup.in", "getrara.ai", "localhost", "services.getrara.ai"];
+      const EXCLUDED_DOMAINS = ["roomup.in", "3dview.app", "getrara.ai", "localhost", "services.getrara.ai"];
       const domainSet = new Set<string>();
 
       for (const rawUrl of rawUrls) {

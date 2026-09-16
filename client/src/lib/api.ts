@@ -1,21 +1,5 @@
 // API client for dashboard endpoints
-
-// Get API base URL
-// Priority: VITE_API_URL env var > base path from Vite > empty (same origin)
-const getApiBase = () => {
-  // If VITE_API_URL is set, use it (for separate backend deployment)
-  if (import.meta.env.VITE_API_URL) {
-    return import.meta.env.VITE_API_URL.replace(/\/$/, ''); // Remove trailing slash
-  }
-
-  // Otherwise, use the base path (for same-origin deployment)
-  if (import.meta.env.PROD) {
-    const basePath = import.meta.env.BASE_URL || '/EF-Dashboard/';
-    return basePath.replace(/\/$/, ''); // Remove trailing slash
-  }
-
-  return ''; // Development uses root (same origin)
-};
+import { getApiBase } from "./basePath";
 
 const API_BASE = getApiBase();
 
@@ -108,6 +92,21 @@ export async function fetchLatestQueries() {
     headers: getAuthHeaders(),
   });
   if (!response.ok) throw new Error('Failed to fetch latest queries');
+  return response.json();
+}
+
+export async function fetchAbTesting(filters?: Record<string, string>) {
+  const params = new URLSearchParams(filters);
+  const response = await fetch(`${API_BASE}/api/ab-testing?${params}`, {
+    headers: getAuthHeaders(),
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to fetch AB testing data (${response.status})`);
+  }
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
+    throw new Error("AB testing API returned non-JSON. Restart the dev server to load the latest API routes.");
+  }
   return response.json();
 }
 

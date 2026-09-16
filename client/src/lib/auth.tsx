@@ -15,17 +15,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Get API base URL
-const getApiBase = () => {
-  if (import.meta.env.VITE_API_URL) {
-    return import.meta.env.VITE_API_URL.replace(/\/$/, '');
-  }
-  if (import.meta.env.PROD) {
-    const basePath = import.meta.env.BASE_URL || '/EF-Dashboard/';
-    return basePath.replace(/\/$/, '');
-  }
-  return '';
-};
+import { getApiBase } from "./basePath";
 
 const API_BASE = getApiBase();
 const TOKEN_KEY = 'ef_dashboard_token';

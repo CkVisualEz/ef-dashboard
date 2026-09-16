@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from "wouter";
+import { getBasePath, withBasePath } from "@/lib/basePath";
 import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
@@ -10,6 +11,7 @@ import {
   Smartphone,
   Clock,
   Share2,
+  FlaskConical,
   Menu,
   Bell,
   UserCircle,
@@ -19,15 +21,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { useAuth } from "@/lib/auth";
-
-// Get base path for navigation (handles subdirectory deployment)
-const getBasePath = () => {
-  if (typeof window !== 'undefined' && import.meta.env.PROD) {
-    const basePath = import.meta.env.BASE_URL || '/EF-Dashboard/';
-    return basePath.replace(/\/$/, ''); // Remove trailing slash
-  }
-  return ''; // Development uses root
-};
 
 const BASE_PATH = getBasePath();
 
@@ -41,6 +34,7 @@ const NAV_ITEMS = [
   { href: `${BASE_PATH}/dashboard/time-patterns`, label: "Time Patterns", icon: Clock },
   { href: `${BASE_PATH}/dashboard/shares-downloads`, label: "Shares & Downloads", icon: Share2 },
   { href: `${BASE_PATH}/dashboard/latest-queries`, label: "Latest Queries", icon: Image },
+  { href: `${BASE_PATH}/dashboard/ab-testing`, label: "A/B Testing", icon: FlaskConical },
 ];
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -180,8 +174,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                 size="icon"
                 onClick={() => {
                   logout();
-                  const loginPath = BASE_PATH ? `${BASE_PATH}/login` : '/login';
-                  window.location.href = loginPath;
+                  window.location.assign(withBasePath("/login"));
                 }}
                 title="Logout"
               >
