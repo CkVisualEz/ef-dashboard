@@ -38,9 +38,9 @@ export default function LatestQueries() {
   } = useQuery({
     queryKey: ['latest-queries'],
     queryFn: () => fetchLatestQueries(),
-    refetchOnMount: false,
-    refetchOnWindowFocus: false,
-    staleTime: Infinity, // Data never becomes stale automatically
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+    staleTime: 30 * 1000,
   });
 
   // Get images from query result - backend already returns only 50 valid images

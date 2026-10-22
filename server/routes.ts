@@ -439,6 +439,24 @@ export async function registerRoutes(server: Server, app: Express) {
     ];
   };
 
+  // AB-testing only: exclude analytics rows geolocated in Delhi, India (internal/test traffic).
+  const buildAbExcludeDelhiIndiaStages = () => [
+    {
+      $match: {
+        $nor: [
+          {
+            "userLocation.country": { $regex: /^India$/i },
+            $or: [
+              { "userLocation.city": { $regex: /Delhi/i } },
+              { "userLocation.regionName": { $regex: /Delhi/i } },
+              { "userLocation.region": { $regex: /Delhi/i } },
+            ],
+          },
+        ],
+      },
+    },
+  ];
+
   const emptyAbVariantMetrics = () => ({
     served: 0,
     ctaClicked: 0,
@@ -4049,6 +4067,7 @@ export async function registerRoutes(server: Server, app: Express) {
       const pipeline = [
         {
           $match: {
+            sessionId: { $exists: true, $ne: null },
             userImage: {
               $exists: true,
               $ne: null,
@@ -4064,7 +4083,12 @@ export async function registerRoutes(server: Server, app: Express) {
                 $filter: {
                   input: { $ifNull: ["$user_actions", []] },
                   as: "action",
-                  cond: { $eq: ["$$action.action", "summary_downloaded"] }
+                  cond: {
+                    $eq: [
+                      { $ifNull: ["$$action.operation", "$$action.action"] },
+                      "summary_downloaded",
+                    ],
+                  },
                 }
               }
             },
@@ -4074,15 +4098,19 @@ export async function registerRoutes(server: Server, app: Express) {
                   input: { $ifNull: ["$user_actions", []] },
                   as: "action",
                   cond: {
-                    $in: ["$$action.action", ["link_copied", "result_shared_on_mail"]]
-                  }
+                    $in: [
+                      { $ifNull: ["$$action.operation", "$$action.action"] },
+                      ["link_copied", "result_shared_on_mail"],
+                    ],
+                  },
                 }
               }
-            }
+            },
+            sortDate: { $toDate: "$created_at" },
           }
         },
         {
-          $sort: { created_at: -1 }
+          $sort: { sortDate: -1 }
         },
         {
           $limit: maxTotal
@@ -4104,6 +4132,7 @@ export async function registerRoutes(server: Server, app: Express) {
       const countPipeline = [
         {
           $match: {
+            sessionId: { $exists: true, $ne: null },
             userImage: {
               $exists: true,
               $ne: null,
@@ -4335,6 +4364,11 @@ export async function registerRoutes(server: Server, app: Express) {
       const uiEventsBase = buildUiEventsBaseMatch(startDate, endDate, domain);
       const analyticsBase = buildAnalyticsAbBaseMatch(startDate, endDate);
       const abVariantStages = buildUiEventsFirstEntryLookupStages(domain);
+      const abAnalyticsStages = [
+        ...getDeviceFilterStages(device),
+        ...abVariantStages,
+        ...buildAbExcludeDelhiIndiaStages(),
+      ];
 
       const [
         servedRows,
@@ -4363,8 +4397,7 @@ export async function registerRoutes(server: Server, app: Express) {
         ]).toArray(),
         features.aggregate([
           ...analyticsBase,
-          ...getDeviceFilterStages(device),
-          ...abVariantStages,
+          ...abAnalyticsStages,
           {
             $group: {
               _id: "$abVariant",
@@ -4382,16 +4415,14 @@ export async function registerRoutes(server: Server, app: Express) {
         ]).toArray(),
         features.aggregate([
           ...analyticsBase,
-          ...getDeviceFilterStages(device),
-          ...abVariantStages,
+          ...abAnalyticsStages,
           { $group: { _id: { version: "$abVariant", userId: "$userId" }, sessions: { $sum: 1 } } },
           { $match: { sessions: { $gt: 1 } } },
           { $group: { _id: "$_id.version", count: { $sum: 1 } } },
         ]).toArray(),
         features.aggregate([
           ...analyticsBase,
-          ...getDeviceFilterStages(device),
-          ...abVariantStages,
+          ...abAnalyticsStages,
           {
             $match: {
               user_actions: { $exists: true, $type: "array", $ne: [] },
@@ -4438,8 +4469,7 @@ export async function registerRoutes(server: Server, app: Express) {
         ]).toArray(),
         features.aggregate([
           ...analyticsBase,
-          ...getDeviceFilterStages(device),
-          ...abVariantStages,
+          ...abAnalyticsStages,
           {
             $match: {
               user_actions: { $exists: true, $type: "array", $ne: [] },
@@ -4478,8 +4508,7 @@ export async function registerRoutes(server: Server, app: Express) {
         ]).toArray(),
         features.aggregate([
           ...analyticsBase,
-          ...getDeviceFilterStages(device),
-          ...abVariantStages,
+          ...abAnalyticsStages,
           { $addFields: { computedDeviceType: getDeviceTypeExpression() } },
           {
             $group: {
@@ -4498,8 +4527,7 @@ export async function registerRoutes(server: Server, app: Express) {
         ]).toArray(),
         features.aggregate([
           ...analyticsBase,
-          ...getDeviceFilterStages(device),
-          ...abVariantStages,
+          ...abAnalyticsStages,
           {
             $match: {
               userLocation: { $exists: true, $ne: null },
@@ -4549,8 +4577,7 @@ export async function registerRoutes(server: Server, app: Express) {
         ]).toArray(),
         features.aggregate([
           ...analyticsBase,
-          ...getDeviceFilterStages(device),
-          ...abVariantStages,
+          ...abAnalyticsStages,
           {
             $group: {
               _id: {
@@ -4563,8 +4590,7 @@ export async function registerRoutes(server: Server, app: Express) {
         ]).toArray(),
         features.aggregate([
           ...analyticsBase,
-          ...getDeviceFilterStages(device),
-          ...abVariantStages,
+          ...abAnalyticsStages,
           {
             $match: {
               user_actions: { $exists: true, $type: "array", $ne: [] },
