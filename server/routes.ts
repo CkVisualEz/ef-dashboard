@@ -4063,20 +4063,40 @@ export async function registerRoutes(server: Server, app: Express) {
       const limit = 50; // Fixed to 50 queries
       const maxTotal = 50; // Maximum 50 images total
 
-      // Build pipeline to fetch images with filters
+      // Newer analytics docs use image_url; legacy docs use userImage
       const pipeline = [
         {
           $match: {
             sessionId: { $exists: true, $ne: null },
-            userImage: {
-              $exists: true,
-              $ne: null,
-              $nin: [null, ""]
-            }
-          }
+            $or: [
+              { userImage: { $exists: true, $type: "string", $regex: /^https?:\/\//i } },
+              { image_url: { $exists: true, $type: "string", $regex: /^https?:\/\//i } },
+            ],
+          },
         },
         {
           $addFields: {
+            resolvedImageUrl: {
+              $let: {
+                vars: {
+                  legacy: { $ifNull: ["$userImage", ""] },
+                  modern: { $ifNull: ["$image_url", ""] },
+                },
+                in: {
+                  $cond: [
+                    { $regexMatch: { input: "$$legacy", regex: /^https?:\/\//i } },
+                    "$$legacy",
+                    {
+                      $cond: [
+                        { $regexMatch: { input: "$$modern", regex: /^https?:\/\//i } },
+                        "$$modern",
+                        null,
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
             userActionsCount: { $size: { $ifNull: ["$user_actions", []] } },
             downloadCount: {
               $size: {
@@ -4107,52 +4127,25 @@ export async function registerRoutes(server: Server, app: Express) {
               }
             },
             sortDate: { $toDate: "$created_at" },
-          }
+          },
         },
-        {
-          $sort: { sortDate: -1 }
-        },
-        {
-          $limit: maxTotal
-        },
+        { $match: { resolvedImageUrl: { $type: "string", $ne: null } } },
+        { $sort: { sortDate: -1 } },
+        { $limit: maxTotal },
         {
           $project: {
             _id: 1,
-            userImage: 1,
+            userImage: "$resolvedImageUrl",
             downloadCount: 1,
             shareCount: 1,
             created_at: 1,
             userId: 1,
-            sessionId: 1
-          }
-        }
+            sessionId: 1,
+          },
+        },
       ];
 
       // Get total count (up to maxTotal)
-      const countPipeline = [
-        {
-          $match: {
-            sessionId: { $exists: true, $ne: null },
-            userImage: {
-              $exists: true,
-              $ne: null,
-              $nin: [null, ""]
-            }
-          }
-        },
-        {
-          $addFields: {
-            userActionsCount: { $size: { $ifNull: ["$user_actions", []] } }
-          }
-        },
-        {
-          $limit: maxTotal
-        },
-        {
-          $count: "total"
-        }
-      ];
-
       const rawData = await features.aggregate(pipeline).toArray();
 
       // Helper function to validate image URL
